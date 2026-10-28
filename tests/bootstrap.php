@@ -118,9 +118,15 @@ function agm_request($name, $kind, callable $body) {
     return $result;
 }
 
-/** Sets request input the way PHP would: $_GET and $_POST, merged into $_REQUEST. */
+/** Sets request input the way PHP would: $_GET and $_POST, merged into $_REQUEST, every value a string. */
 function agm_input(array $get = array(), array $post = array()) {
-    $_GET = $get;
-    $_POST = $post;
-    $_REQUEST = array_merge($get, $post);
+    $strings = function ($value) use (&$strings) {
+        if (is_array($value)) {
+            return array_map($strings, $value);
+        }
+        return is_bool($value) ? ($value ? '1' : '') : (is_scalar($value) ? (string) $value : $value);
+    };
+    $_GET = $strings($get);
+    $_POST = $strings($post);
+    $_REQUEST = array_merge($_GET, $_POST);
 }

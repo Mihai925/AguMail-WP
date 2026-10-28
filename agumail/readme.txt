@@ -1,5 +1,5 @@
 === AguMail: Email Marketing Made Easy ===
-Contributors: agumail
+Contributors: mihaij95
 Tags: email marketing, newsletter, signup form, popup, woocommerce
 Requires at least: 6.5
 Tested up to: 7.1
@@ -23,7 +23,7 @@ New to AguMail? [Create your free account](https://agumail.com/signup?utm_source
 * **Signup forms and popups.** Add an AguMail form anywhere with the `[agumail_form slug="..."]` shortcode or the AguMail form block, or show one as a popup across the site: after a delay, after scrolling, or when the visitor moves to leave.
 * **The forms you already have.** Elementor Pro, Contact Form 7 and WPForms can each send their signups to AguMail, with no key to paste into each form.
 * **Registrations.** A marketing checkbox on the WordPress registration form adds the people who tick it to your list.
-* **Website tracking.** The AguMail site script records the pages a recognized visitor reads, so a flow can follow up. You can switch it off.
+* **Website tracking.** The AguMail site script records the pages a recognized visitor reads, so a flow can follow up. It is off until you switch it on.
 
 = With WooCommerce =
 
@@ -58,6 +58,7 @@ Each form chooses its tags, whether signups confirm by email first, and which fi
     * **On a WooCommerce store**, press **Connect to AguMail**, check the store address in AguMail and approve. Then press **Sync store data now** to bring in your customers, products and past orders.
     * **On any other site**, create an API key in AguMail under Settings > API keys, paste it on the AguMail page and press **Connect**.
 4. Add signup forms (Forms), switch on your form plugins' signups, and choose the words next to the marketing checkbox.
+5. To let flows follow up on the pages and products people look at, switch on **Website tracking**. It is off until you do.
 
 Requirements: WordPress 6.5 or later, PHP 7.4 or later. On a store, WooCommerce 8.0 or later (the checkbox on the block checkout needs WooCommerce 8.9). Sending runs on Action Scheduler: WooCommerce's own on a store, and a copy bundled with the plugin on any other site. WP-Cron or a server cron must be running, as it is on most hosts.
 
@@ -128,7 +129,7 @@ It also checks the connection, the list of your published forms, which customers
 
 **AguMail approval page** (https://agumail.com/connect/woocommerce). On a WooCommerce store, opened in your browser when you press Connect to AguMail. It receives your store's address, the address to return to, and a one-time challenge that proves the approval came back to this site.
 
-**AguMail site script** (served from agupage.com, AguMail's pages domain). Loaded in visitors' browsers on your site's pages while website tracking is on. It sends page and product views of visitors AguMail recognizes to https://api.agumail.com, and for signed-in visitors their email address with a signature.
+**AguMail site script** (served from agupage.com, AguMail's pages domain). Loaded in visitors' browsers on your site's pages only after you switch website tracking on (it is off by default). It sends page and product views of visitors AguMail recognizes to https://api.agumail.com, and for signed-in visitors their email address with a signature.
 
 **AguMail forms loader** (https://api.agumail.com/embed/agumail-forms.js). Loaded in visitors' browsers on pages that show an AguMail form or popup. The form itself comes from AguMail, and what a visitor types into it goes to AguMail.
 

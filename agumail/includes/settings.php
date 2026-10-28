@@ -170,9 +170,14 @@ function agumail_checkout_optin_ticked_by_default() {
     return get_option('agumail_checkout_optin_default', 'no') === 'yes';
 }
 
-/** A yes/no switch: agumail_tracking_enabled, agumail_registration_optin, agumail_account_toggle. All default to yes. */
+/** A yes/no switch: agumail_registration_optin, agumail_account_toggle. Both default to yes. */
 function agumail_switch_on($option) {
     return get_option($option, 'yes') !== 'no';
+}
+
+/** Whether website tracking is on. Off until the merchant switches it on. */
+function agumail_tracking_on() {
+    return get_option('agumail_tracking_enabled', 'no') === 'yes';
 }
 
 /** The config AguMail last handed over through ping or connect, or one key of it. */

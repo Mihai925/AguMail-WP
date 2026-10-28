@@ -7,9 +7,10 @@ import { wp, wpEval } from '../helpers/wp';
 
 // From activating the plugin to a connected store, as a merchant meets it:
 //   - activating AguMail from the Plugins screen lands on the AguMail page, once;
-//   - until the store is connected, the Plugins row leads with Connect, and a notice on the Dashboard, the Plugins
-//     screen and WooCommerce's screens offers "Connect to AguMail", which starts the one-click connect;
-//   - once connected, the row leads with Settings and the notice is gone; Dismiss hides it for good.
+//   - until the store is connected, the Plugins row leads with Connect, and a notice on the Dashboard and the
+//     Plugins screen offers "Connect to AguMail", which starts the one-click connect;
+//   - once connected, the row leads with Settings and the notice is gone; Dismiss hides it for good;
+//   - website tracking starts off, and once connected a notice offers to switch it on.
 // The store ends connected to the fake again, as every other spec expects.
 
 test.describe.configure({ mode: 'serial' });
@@ -19,7 +20,7 @@ const NOTICE_TEXT = 'Connect AguMail to start syncing your customers, orders and
 
 async function disconnect(): Promise<void> {
   await wpEval(
-    "foreach (array('agumail_api_key', 'agumail_config', 'agumail_connection', 'agumail_connected_at', 'agumail_forms_cache', 'agumail_connect_notice_dismissed') as $o) delete_option($o); delete_transient('agumail_ping_retry'); delete_transient('agumail_activation_redirect');",
+    "foreach (array('agumail_api_key', 'agumail_config', 'agumail_connection', 'agumail_connected_at', 'agumail_forms_cache', 'agumail_connect_notice_dismissed', 'agumail_tracking_enabled') as $o) delete_option($o); delete_transient('agumail_ping_retry'); delete_transient('agumail_activation_redirect');",
   );
 }
 
@@ -66,15 +67,15 @@ test('activating AguMail from the Plugins screen lands on its settings page, onc
   expect(lastLine(await wpEval("echo var_export(get_transient('agumail_activation_redirect'), true);"))).toBe('false');
 });
 
-test('the connect notice shows on the Dashboard, Plugins and WooCommerce screens only, and its button connects', async ({ browser }) => {
+test('the connect notice shows on the Dashboard and Plugins screens only, and its button connects', async ({ browser }) => {
   const admin = await adminContext(browser);
   const page = await admin.newPage();
   try {
-    for (const path of ['index.php', 'plugins.php', 'edit.php?post_type=product', 'admin.php?page=wc-settings']) {
+    for (const path of ['index.php', 'plugins.php']) {
       await page.goto(`${SITE_URL}/wp-admin/${path}`);
       await expect(notice(page), `the notice on ${path}`).toContainText(NOTICE_TEXT);
     }
-    for (const path of ['admin.php?page=agumail', 'edit.php', 'options-general.php']) {
+    for (const path of ['edit.php?post_type=product', 'admin.php?page=wc-settings', 'admin.php?page=agumail', 'edit.php', 'options-general.php']) {
       await page.goto(`${SITE_URL}/wp-admin/${path}`);
       await expect(notice(page), `a notice on ${path}`).toHaveCount(0);
     }
@@ -95,6 +96,33 @@ test('the connect notice shows on the Dashboard, Plugins and WooCommerce screens
   } finally {
     await admin.close();
   }
+});
+
+test('once connected, a notice says website tracking is off and its button switches it on', async ({ browser }) => {
+  expect(lastLine(await wpEval("echo var_export(get_option('agumail_tracking_enabled', false), true);"))).toBe('false');
+  const admin = await adminContext(browser);
+  const page = await admin.newPage();
+  const tracking = page.locator('.agumail-tracking-notice');
+  try {
+    for (const path of ['index.php', 'plugins.php', 'admin.php?page=agumail']) {
+      await page.goto(`${SITE_URL}/wp-admin/${path}`);
+      await expect(tracking, `the tracking notice on ${path}`).toContainText('AguMail website tracking is off.');
+    }
+    for (const path of ['edit.php', 'admin.php?page=wc-settings']) {
+      await page.goto(`${SITE_URL}/wp-admin/${path}`);
+      await expect(tracking, `a tracking notice on ${path}`).toHaveCount(0);
+    }
+
+    await page.goto(`${SITE_URL}/wp-admin/index.php`);
+    await tracking.getByRole('link', { name: 'Turn on website tracking', exact: true }).click();
+    await page.waitForURL(/page=agumail/);
+    expect(await settingsNotice(page)).toBe('Website tracking is on.');
+    await expect(tracking).toHaveCount(0);
+    await expect(page.locator('#agumail_tracking_enabled')).toBeChecked();
+  } finally {
+    await admin.close();
+  }
+  expect(lastLine(await wpEval("echo get_option('agumail_tracking_enabled');"))).toBe('yes');
 });
 
 test('Dismiss hides the notice for good and goes back to the page it was on', async ({ browser }) => {

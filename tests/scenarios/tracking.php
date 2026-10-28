@@ -2,7 +2,8 @@
 // Website tracking. The site script is added to every storefront page from the
 // config AguMail handed over, and a signed-in customer is identified with a
 // signature AguMail can check, so nobody holding the public site key can plant
-// product views for somebody else.
+// product views for somebody else. Tracking is off until the merchant switches
+// it on, and a notice says so once the site is connected.
 
 // The script loads only from AguMail's own hosts or one wp-config.php pins.
 // This store pins the test API, as a development site would, so the
@@ -16,6 +17,10 @@ define('AGUMAIL_API_URL', 'https://api.agumail.test');
 //                  = Vs89cUzFLJ7S9RDBAl_d6Imi4MfawNK_Ox_ZEx5PsvU
 define('TRACKING_SECRET_VECTOR', '0MuzRMHpG2I2mkdDM-TLd9cwZ3MJcsUZ1e6qXE5oqbg');
 define('TRACKING_SIG_VECTOR', 'Vs89cUzFLJ7S9RDBAl_d6Imi4MfawNK_Ox_ZEx5PsvU');
+
+// The merchant has switched website tracking on. The tests of the setting
+// and its notice start from a site that has not chosen yet.
+update_option('agumail_tracking_enabled', 'yes');
 
 function tracking_config(array $changes = array()) {
     return array_merge(array(
@@ -307,7 +312,8 @@ function test_tracking_without_a_secret_identifies_unsigned() {
 
 // ── The setting ──
 
-function test_tracking_the_setting_is_on_by_default_and_saved_from_the_settings_page() {
+function test_tracking_the_setting_is_off_by_default_and_saved_from_the_settings_page() {
+    delete_option('agumail_tracking_enabled');
     agm_sign_in(1, 'owner@shop.test');
     agm_grant('manage_woocommerce');
     do_action('init');
@@ -315,7 +321,8 @@ function test_tracking_the_setting_is_on_by_default_and_saved_from_the_settings_
     expect_that(isset($sections['tracking']), 'there is no Website tracking section');
     expect_same('Website tracking', $sections['tracking']['title'], 'wrong section title');
     $html = agm_capture(function () use ($sections) { call_user_func($sections['tracking']['render']); });
-    expect_that(preg_match('/<input[^>]*name="agumail_tracking_enabled"[^>]*checked/', $html) === 1, 'tracking is not on by default: ' . $html);
+    expect_that(preg_match('/<input[^>]*name="agumail_tracking_enabled"[^>]*>/', $html, $box) === 1, 'there is no tracking checkbox: ' . $html);
+    expect_that(strpos($box[0], 'checked') === false, 'tracking is on by default: ' . $box[0]);
     expect_that(strpos($html, '—') === false, 'UI copy carries an em-dash');
 
     $save = function ($fields) {
@@ -329,4 +336,143 @@ function test_tracking_the_setting_is_on_by_default_and_saved_from_the_settings_
     expect_same(array(), $result['http'], 'saving called AguMail');
     $save(array('agumail_tracking_enabled' => 'yes'));
     expect_same('yes', get_option('agumail_tracking_enabled'), 'a ticked box did not turn tracking on');
+}
+
+function test_tracking_nothing_loads_until_the_merchant_switches_it_on() {
+    delete_option('agumail_tracking_enabled');
+    update_option('agumail_config', tracking_config());
+    agm_add_user(7, 'ada.lovelace@example.com');
+    agm_sign_in(7);
+    $page = tracking_page();
+    expect_same(null, $page['script'], 'the site script loaded before the merchant switched tracking on');
+    expect_same("<script src=\"https://api.agumail.test/t/site.js\" id=\"agumail-site-js\"></script>\n", tracking_tag(), 'the tag was changed before tracking was on');
+}
+
+// ── The notice ──
+
+/** A connected store whose AguMail account has site tracking, and a store manager signed in, before anyone chose. */
+function tracking_notice_store() {
+    delete_option('agumail_tracking_enabled');
+    update_option('agumail_config', tracking_config());
+    agumail_save_api_key('agm_' . str_repeat('b', 40));
+    agm_sign_in(1, 'owner@shop.test');
+    agm_grant('manage_woocommerce');
+    do_action('init');
+}
+
+/** The admin notices a screen draws. */
+function tracking_notice_on($screen) {
+    $GLOBALS['agm']['screen'] = $screen;
+    try {
+        return agm_capture(function () { do_action('admin_notices'); });
+    } finally {
+        $GLOBALS['agm']['screen'] = null;
+    }
+}
+
+/** A link's href from printed HTML, found by its text. */
+function tracking_href($html, $text) {
+    expect_that((bool) preg_match('#<a [^>]*href="([^"]+)"[^>]*>' . preg_quote($text, '#') . '</a>#', $html, $match), "no \"$text\" link in: $html");
+    return html_entity_decode($match[1], ENT_QUOTES);
+}
+
+/** Follows an admin-post.php link the way a click does. */
+function tracking_follow($href, $referer = '') {
+    parse_str((string) parse_url($href, PHP_URL_QUERY), $query);
+    return agm_request('follow ' . $href, 'admin', function () use ($query, $referer) {
+        agm_input($query);
+        if ($referer !== '') {
+            $_SERVER['HTTP_REFERER'] = $referer;
+        }
+        try {
+            do_action('admin_post_' . $query['action']);
+        } finally {
+            unset($_SERVER['HTTP_REFERER']);
+        }
+    });
+}
+
+function test_tracking_the_notice_shows_on_the_dashboard_plugins_and_agumail_page_once_connected() {
+    tracking_notice_store();
+    $writes = count(agm_writes());
+    foreach (array('dashboard', 'plugins', 'toplevel_page_agumail') as $screen) {
+        $html = tracking_notice_on($screen);
+        expect_that(strpos($html, 'AguMail website tracking is off.') !== false, "no tracking notice on $screen");
+        expect_that(strpos($html, 'the products people looked at') !== false, "the notice on $screen does not say what tracking is for: $html");
+    }
+    foreach (array('woocommerce_page_wc-settings', 'edit-post', 'options-general', null) as $screen) {
+        expect_that(strpos(tracking_notice_on($screen), 'agumail-tracking-notice') === false, 'a tracking notice on ' . var_export($screen, true));
+    }
+    expect_that(strpos(tracking_notice_on('dashboard'), '—') === false, 'the notice carries an em-dash');
+    expect_same($writes, count(agm_writes()), 'showing the notice wrote something');
+}
+
+function test_tracking_the_notice_waits_for_a_connected_site_with_site_tracking_and_a_store_manager() {
+    tracking_notice_store();
+    agm_grant('manage_woocommerce', false);
+    expect_same('', tracking_notice_on('dashboard'), 'a user who cannot manage AguMail saw the notice');
+    agm_grant('manage_woocommerce');
+
+    update_option('agumail_config', tracking_config(array('siteKey' => null)));
+    expect_same('', tracking_notice_on('dashboard'), 'the notice showed for an account without site tracking');
+    update_option('agumail_config', tracking_config());
+
+    delete_option('agumail_api_key');
+    expect_that(strpos(tracking_notice_on('dashboard'), 'agumail-tracking-notice') === false, 'the notice showed before the site was connected');
+}
+
+function test_tracking_the_notice_goes_once_the_merchant_has_chosen() {
+    tracking_notice_store();
+    foreach (array('yes', 'no') as $choice) {
+        update_option('agumail_tracking_enabled', $choice);
+        expect_same('', tracking_notice_on('dashboard'), "the notice showed after the merchant chose $choice");
+    }
+}
+
+function test_tracking_the_notice_button_turns_tracking_on() {
+    tracking_notice_store();
+    $html = tracking_notice_on('dashboard');
+    $on = tracking_href($html, 'Turn on website tracking');
+    expect_same(agumail_admin_action_url('tracking_save', array('agumail_tracking_enabled' => 'yes')), $on, 'the button does not run the setting\'s own save');
+    expect_that(strpos($html, 'class="button button-primary"') !== false, 'Turn on website tracking is not the primary button');
+
+    $result = tracking_follow($on, 'https://shop.test/wp-admin/index.php');
+    expect_same('yes', get_option('agumail_tracking_enabled'), 'the button did not turn tracking on');
+    expect_same('redirect: ' . agumail_admin_page_url(), $result['halt'], 'the merchant did not land on the AguMail page');
+    expect_same(array('type' => 'success', 'message' => 'Website tracking is on.'), get_transient('agumail_notice_1'), 'the AguMail page does not confirm it');
+    expect_same(array(), $result['http'], 'turning tracking on called AguMail');
+    expect_same('', tracking_notice_on('dashboard'), 'the notice stayed after tracking was turned on');
+    agm_sign_out();
+    expect_that(tracking_page()['script'] !== null, 'the site script did not load once tracking was on');
+}
+
+function test_tracking_keep_it_off_keeps_it_off_and_goes_back() {
+    tracking_notice_store();
+    $keep = tracking_href(tracking_notice_on('plugins'), 'Keep it off');
+    expect_same(agumail_admin_action_url('tracking_keep_off'), $keep, 'Keep it off does not go through an admin action');
+
+    $result = tracking_follow($keep, 'https://shop.test/wp-admin/plugins.php');
+    expect_same('redirect: https://shop.test/wp-admin/plugins.php', $result['halt'], 'the merchant was not sent back to the page they were on');
+    expect_same('no', get_option('agumail_tracking_enabled'), 'keeping it off was not saved');
+    expect_same(false, get_transient('agumail_notice_1'), 'keeping it off left a message for the AguMail page');
+    foreach (array('dashboard', 'plugins', 'toplevel_page_agumail') as $screen) {
+        expect_same('', tracking_notice_on($screen), "the notice came back on $screen");
+    }
+    agm_sign_out();
+    expect_same(null, tracking_page()['script'], 'the site script loaded after Keep it off');
+}
+
+function test_tracking_the_notice_links_need_the_nonce_and_the_capability() {
+    tracking_notice_store();
+    $html = tracking_notice_on('dashboard');
+    foreach (array('Turn on website tracking', 'Keep it off') as $text) {
+        $href = tracking_href($html, $text);
+        $result = tracking_follow(add_query_arg('_wpnonce', 'nonce-stale', $href));
+        expect_that(strpos((string) $result['halt'], 'wp_die') === 0, "$text ran without a valid nonce");
+        agm_grant('manage_woocommerce', false);
+        $result = tracking_follow($href);
+        expect_that(strpos((string) $result['halt'], 'wp_die') === 0, "$text ran for a user who cannot manage AguMail");
+        agm_grant('manage_woocommerce');
+    }
+    expect_same(false, get_option('agumail_tracking_enabled', false), 'a refused link changed the setting');
 }

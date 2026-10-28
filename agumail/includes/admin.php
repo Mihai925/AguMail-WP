@@ -6,8 +6,9 @@
 // does from it (save, connect, retry, sync); it is reached through
 // admin-post.php for forms and links, or admin-ajax.php for scripts, and every
 // action passes the same checks here: the capability to manage AguMail
-// (AGUMAIL_ADMIN_CAPABILITY) and a nonce of its own. Actions run as background
-// work, so they may call AguMail.
+// (AGUMAIL_ADMIN_CAPABILITY) and a nonce of its own. An action receives only
+// the fields it names, each already cleaned. Actions run as background work,
+// so they may call AguMail.
 
 if (!defined('ABSPATH')) {
     exit;
@@ -20,7 +21,7 @@ define('AGUMAIL_ADMIN_PAGE', 'agumail');
 // ─────────────────────────────────────────────────────────────────────────────
 
 function &agumail_admin_registry() {
-    static $registry = array('sections' => array(), 'actions' => array());
+    static $registry = array('sections' => array(), 'actions' => array(), 'fields' => array());
     return $registry;
 }
 
@@ -43,17 +44,23 @@ function agumail_admin_register_section($id, $title, $render_callback, $priority
 }
 
 /**
- * Something the merchant can do. $callback receives the request fields
- * (unslashed) and returns one of:
+ * Something the merchant can do. $fields names the request fields it reads,
+ * each with how it is cleaned:
+ *   text   sanitize_text_field()
+ *   key    sanitize_key()
+ *   int    absint()
+ *   label  wp_kses() with the consent label's tags (links only)
+ * $callback receives those fields that were sent, cleaned, and returns one of:
  *   a message string, or ['message' => ..., 'type' => success|error|warning|info]
  *   a WP_Error, shown as an error
  *   ['redirect' => url] to send the merchant somewhere else: this site, or AguMail's app
  *   null, to say nothing
  * Called from a script, the value comes back as JSON instead.
  */
-function agumail_admin_register_action($action, $callback) {
+function agumail_admin_register_action($action, $callback, array $fields = array()) {
     $registry = &agumail_admin_registry();
     $registry['actions'][(string) $action] = $callback;
+    $registry['fields'][(string) $action] = $fields;
 }
 
 /** Sections in page order. Until a feature supplies its own, a plain Connection section stands in. */
@@ -106,9 +113,7 @@ add_action('wp_ajax_agumail', 'agumail_admin_handle_ajax');
 
 /** A form or link: runs the action, keeps its message for the next page view, and goes back to the settings page. */
 function agumail_admin_handle_post() {
-    $request = wp_unslash($_REQUEST); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- checked in agumail_admin_dispatch().
-    $action = isset($request['agumail_action']) ? sanitize_key($request['agumail_action']) : '';
-    $result = agumail_admin_dispatch($action, is_array($request) ? $request : array());
+    $result = agumail_admin_dispatch(agumail_admin_requested_action());
     if (is_wp_error($result) && in_array($result->get_error_code(), array('agumail_forbidden', 'agumail_bad_nonce'), true)) {
         wp_die(esc_html($result->get_error_message()), '', array('response' => 403));
     }
@@ -142,9 +147,7 @@ function agumail_allow_app_redirect($hosts) {
 
 /** A script: runs the action and answers with JSON. */
 function agumail_admin_handle_ajax() {
-    $request = wp_unslash($_REQUEST); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- checked in agumail_admin_dispatch().
-    $action = isset($request['agumail_action']) ? sanitize_key($request['agumail_action']) : '';
-    $result = agumail_admin_dispatch($action, is_array($request) ? $request : array());
+    $result = agumail_admin_dispatch(agumail_admin_requested_action());
     if (is_wp_error($result)) {
         $status = in_array($result->get_error_code(), array('agumail_forbidden', 'agumail_bad_nonce'), true) ? 403 : 400;
         wp_send_json_error(array('message' => $result->get_error_message(), 'code' => $result->get_error_code()), $status);
@@ -152,20 +155,64 @@ function agumail_admin_handle_ajax() {
     wp_send_json_success($result);
 }
 
-/** The central checks, then the action itself, as background work. */
-function agumail_admin_dispatch($action, array $request) {
+/** Which action the request asks for, or ''. */
+function agumail_admin_requested_action() {
+    // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- the action's own nonce is checked in agumail_admin_dispatch().
+    return isset($_REQUEST['agumail_action']) && is_string($_REQUEST['agumail_action']) ? sanitize_key(wp_unslash($_REQUEST['agumail_action'])) : '';
+}
+
+/** The nonce the request carries: _wpnonce from a form or link, _ajax_nonce from a script. */
+function agumail_admin_request_nonce() {
+    // phpcs:disable WordPress.Security.NonceVerification.Recommended -- this is the nonce, read to be verified.
+    foreach (array('_wpnonce', '_ajax_nonce') as $name) {
+        if (isset($_REQUEST[$name]) && is_string($_REQUEST[$name])) {
+            return sanitize_text_field(wp_unslash($_REQUEST[$name]));
+        }
+    }
+    // phpcs:enable
+    return '';
+}
+
+/**
+ * The fields $action names, those the request sent, each cleaned as the
+ * action asked. Called only once the nonce has passed.
+ */
+function agumail_admin_request_fields($action) {
+    $registry = &agumail_admin_registry();
+    $wanted = isset($registry['fields'][$action]) ? $registry['fields'][$action] : array();
+    $fields = array();
+    // phpcs:disable WordPress.Security.NonceVerification.Recommended -- agumail_admin_dispatch() verified the nonce first.
+    foreach ($wanted as $name => $type) {
+        if (!isset($_REQUEST[$name]) || !is_string($_REQUEST[$name])) {
+            continue;
+        }
+        if ($type === 'int') {
+            $fields[$name] = absint(wp_unslash($_REQUEST[$name]));
+        } elseif ($type === 'key') {
+            $fields[$name] = sanitize_key(wp_unslash($_REQUEST[$name]));
+        } elseif ($type === 'label') {
+            $fields[$name] = wp_kses(wp_unslash($_REQUEST[$name]), agumail_consent_label_tags());
+        } else {
+            $fields[$name] = sanitize_text_field(wp_unslash($_REQUEST[$name]));
+        }
+    }
+    // phpcs:enable
+    return $fields;
+}
+
+/** The central checks, then the action itself with its fields, as background work. */
+function agumail_admin_dispatch($action) {
     if (!current_user_can(AGUMAIL_ADMIN_CAPABILITY)) {
         return new WP_Error('agumail_forbidden', __('You are not allowed to manage AguMail.', 'agumail'));
     }
-    $nonce = isset($request['_wpnonce']) ? (string) $request['_wpnonce'] : (isset($request['_ajax_nonce']) ? (string) $request['_ajax_nonce'] : '');
-    if ($action === '' || !wp_verify_nonce($nonce, 'agumail_action_' . $action)) {
+    if ($action === '' || !wp_verify_nonce(agumail_admin_request_nonce(), 'agumail_action_' . $action)) {
         return new WP_Error('agumail_bad_nonce', __('This link has expired. Go back to the AguMail settings and try again.', 'agumail'));
     }
     $registry = &agumail_admin_registry();
     if (!isset($registry['actions'][$action]) || !is_callable($registry['actions'][$action])) {
         return new WP_Error('agumail_unknown_action', __('Unknown AguMail action.', 'agumail'));
     }
-    return agumail_run_in_background($registry['actions'][$action], array($request));
+    return agumail_run_in_background($registry['actions'][$action], array(agumail_admin_request_fields($action)));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -359,7 +406,10 @@ function agumail_admin_signup_link($place) {
 add_action('init', 'agumail_admin_register_checkout');
 
 function agumail_admin_register_checkout() {
-    agumail_admin_register_action('save_checkout', 'agumail_admin_save_checkout');
+    agumail_admin_register_action('save_checkout', 'agumail_admin_save_checkout', array(
+        'agumail_consent_label'          => 'label',
+        'agumail_checkout_optin_default' => 'text',
+    ));
     if (!agumail_woocommerce_active()) {
         return;
     }

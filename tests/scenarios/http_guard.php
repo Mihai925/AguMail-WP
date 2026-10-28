@@ -217,6 +217,34 @@ function test_http_guard_admin_tools_need_the_capability_and_their_own_nonce() {
     expect_same(array('type' => 'error', 'message' => 'Unknown AguMail action.'), get_transient('agumail_notice_0'), 'an unknown action was not reported');
 }
 
+function test_http_guard_an_admin_tool_gets_only_the_fields_it_names_each_cleaned() {
+    agm_grant('manage_woocommerce');
+    $GLOBALS['agm']['fields'] = null;
+    agumail_admin_register_action('agm_fields', function (array $request) {
+        $GLOBALS['agm']['fields'] = $request;
+        return 'Done.';
+    }, array('name' => 'text', 'count' => 'int', 'trigger' => 'key', 'label' => 'label', 'missing' => 'text', 'list' => 'text'));
+    http_guard_post_tool('agm_fields', array(
+        'name'    => "  Ada <b>Lovelace</b>\n",
+        'count'   => '-12',
+        'trigger' => 'Exit_Intent!',
+        'label'   => 'Yes, <a href="https://shop.test/privacy">email me</a><script>x()</script>',
+        'list'    => array('a', 'b'),
+        'other'   => 'not asked for',
+    ));
+    expect_same(array(
+        'name'    => 'Ada Lovelace',
+        'count'   => 12,
+        'trigger' => 'exit_intent',
+        'label'   => 'Yes, <a href="https://shop.test/privacy">email me</a>x()',
+    ), $GLOBALS['agm']['fields'], 'the action did not get exactly its own fields, cleaned');
+
+    $GLOBALS['agm']['fields'] = null;
+    $result = http_guard_post_tool('agm_fields', array(), array(agumail_admin_nonce('agm_fields')));
+    expect_that(strpos((string) $result['halt'], 'wp_die: This link has expired') === 0, 'a nonce sent as a list was accepted');
+    expect_same(null, $GLOBALS['agm']['fields'], 'the action ran without a usable nonce');
+}
+
 function test_http_guard_an_admin_tool_may_send_the_merchant_to_agumail_but_nowhere_else() {
     agm_grant('manage_woocommerce');
     define('AGUMAIL_APP_URL', 'https://app.agumail.test');
@@ -237,7 +265,7 @@ function test_http_guard_admin_tools_answer_scripts_with_json() {
     agm_grant('manage_woocommerce');
     agumail_admin_register_action('agm_progress', function (array $request) {
         return array('done' => 40, 'total' => 100, 'asked' => $request['step']);
-    });
+    }, array('step' => 'text'));
     agumail_admin_register_action('agm_failing', function () {
         return new WP_Error('agumail_sync_busy', 'A sync is already running.');
     });

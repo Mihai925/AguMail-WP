@@ -23,6 +23,12 @@
 // staff are not named unless the agumail_identify_staff filter says so, and
 // signing out forgets the visitor in this browser. Everything here reads
 // stored options only.
+//
+// Website tracking is off until the merchant switches it on. Once the site is
+// connected and its AguMail account has site tracking, a notice on the
+// Dashboard, the Plugins screen and the AguMail page says so and offers to
+// switch it on. It goes once the merchant has chosen: switched it on, saved
+// the setting either way, or pressed Keep it off.
 
 if (!defined('ABSPATH')) {
     exit;
@@ -34,6 +40,7 @@ add_action('init', 'agumail_tracking_register_admin');
 add_action('wp_enqueue_scripts', 'agumail_tracking_enqueue');
 add_filter('script_loader_tag', 'agumail_tracking_script_tag', 10, 3);
 add_action('wp_logout', 'agumail_tracking_forget_visitor');
+add_action('admin_notices', 'agumail_tracking_notice');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Signed identify.
@@ -90,7 +97,7 @@ function agumail_tracking_site() {
 }
 
 function agumail_tracking_enqueue() {
-    if (is_admin() || !agumail_switch_on('agumail_tracking_enabled')) {
+    if (is_admin() || !agumail_tracking_on()) {
         return;
     }
     $site = agumail_tracking_site();
@@ -111,7 +118,7 @@ function agumail_tracking_enqueue() {
  * Rocket Loader is told to leave it alone.
  */
 function agumail_tracking_script_tag($tag, $handle, $src = '') {
-    if ($handle !== AGUMAIL_SITE_HANDLE || !agumail_switch_on('agumail_tracking_enabled')) {
+    if ($handle !== AGUMAIL_SITE_HANDLE || !agumail_tracking_on()) {
         return $tag;
     }
     $site = agumail_tracking_site();
@@ -243,11 +250,12 @@ function agumail_tracking_register_admin() {
             ? __('Product views, so flows can follow up on them.', 'agumail')
             : __('Page views, so flows can follow up on them.', 'agumail'),
     ));
-    agumail_admin_register_action('tracking_save', 'agumail_tracking_save');
+    agumail_admin_register_action('tracking_save', 'agumail_tracking_save', array('agumail_tracking_enabled' => 'text'));
+    agumail_admin_register_action('tracking_keep_off', 'agumail_tracking_keep_off');
 }
 
 function agumail_tracking_render_section() {
-    $on = agumail_switch_on('agumail_tracking_enabled');
+    $on = agumail_tracking_on();
     $store = agumail_woocommerce_active();
     echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
     agumail_admin_action_fields('tracking_save');
@@ -282,4 +290,41 @@ function agumail_tracking_save(array $request) {
     $on = isset($request['agumail_tracking_enabled']) && $request['agumail_tracking_enabled'] !== '' && $request['agumail_tracking_enabled'] !== 'no';
     update_option('agumail_tracking_enabled', $on ? 'yes' : 'no');
     return array('message' => $on ? __('Website tracking is on.', 'agumail') : __('Website tracking is off.', 'agumail'));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The notice. Its button is the setting's own save, so the merchant lands on
+// the AguMail page with tracking on; Keep it off saves the setting as off and
+// goes back to the page they were on. Both are admin actions, with the same
+// nonce and capability checks as every other.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Whether the notice belongs on the screen being drawn: a connected site that has not chosen yet, on the Dashboard, Plugins or AguMail page. */
+function agumail_tracking_notice_due() {
+    if (!current_user_can(AGUMAIL_ADMIN_CAPABILITY) || get_option('agumail_tracking_enabled', '') !== ''
+        || !agumail_has_api_key() || !agumail_tracking_site()) {
+        return false;
+    }
+    $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+    return $screen && !empty($screen->id) && in_array($screen->id, array('dashboard', 'plugins', agumail_admin_hook_suffix()), true);
+}
+
+function agumail_tracking_notice() {
+    if (!agumail_tracking_notice_due()) {
+        return;
+    }
+    $text = agumail_woocommerce_active()
+        ? __('Switch it on so your flows can follow up on the products people looked at. Views are recorded only for visitors AguMail recognizes, such as signed-in customers and people who arrived from your emails.', 'agumail')
+        : __('Switch it on so your flows can follow up on the pages people read. Views are recorded only for visitors AguMail recognizes, such as signed-in members and people who arrived from your emails.', 'agumail');
+    echo '<div class="notice notice-info agumail-tracking-notice"><p><strong>' . esc_html__('AguMail website tracking is off.', 'agumail') . '</strong> ' . esc_html($text) . '</p><p>'
+        . '<a class="button button-primary" href="' . esc_url(agumail_admin_action_url('tracking_save', array('agumail_tracking_enabled' => 'yes'))) . '">' . esc_html__('Turn on website tracking', 'agumail') . '</a> '
+        . '<a class="agumail-tracking-notice-dismiss" href="' . esc_url(agumail_admin_action_url('tracking_keep_off')) . '">' . esc_html__('Keep it off', 'agumail') . '</a>'
+        . '</p></div>';
+}
+
+/** Admin action: tracking stays off, the notice goes, and the merchant goes back to the page they were on. */
+function agumail_tracking_keep_off() {
+    update_option('agumail_tracking_enabled', 'no');
+    $back = wp_get_referer();
+    return array('redirect' => $back ? $back : admin_url());
 }

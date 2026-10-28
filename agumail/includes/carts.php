@@ -539,7 +539,7 @@ function agumail_cart_flush() {
 // Capture: POST ?wc-ajax=agumail_capture {email, context}. No nonce, because the
 // checkout page may be served from a page cache. It answers {ok: true} whatever
 // happened, and adds the identify signature and the address it signed
-// ({sig, email}) when it kept the email.
+// ({sig, email}) when it kept the email and website tracking is on.
 // ─────────────────────────────────────────────────────────────────────────────
 
 add_action('wc_ajax_' . AGUMAIL_CAPTURE_ACTION, 'agumail_capture_request');
@@ -557,7 +557,8 @@ function agumail_capture_request() {
         $state = &agumail_cart_request_state();
         $state['changed'] = false;
     }
-    if ($email !== '' && agumail_capture_accepted($email)) {
+    // The signature is only for the site script, so none is handed out while website tracking is off.
+    if ($email !== '' && agumail_tracking_on() && agumail_capture_accepted($email)) {
         $sig = function_exists('agumail_identify_signature') ? (string) agumail_identify_signature($email) : '';
         if ($sig !== '') {
             // The address exactly as signed, which sanitising may have changed from what was typed.
@@ -779,8 +780,7 @@ function agumail_cart_is_rest_request() {
     if (wp_is_json_request() || isset($_GET['rest_route'])) {
         return true;
     }
-    // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- compared, never output.
-    $uri = isset($_SERVER['REQUEST_URI']) && is_string($_SERVER['REQUEST_URI']) ? wp_unslash($_SERVER['REQUEST_URI']) : '';
+    $uri = isset($_SERVER['REQUEST_URI']) && is_string($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '';
     $prefix = trim(function_exists('rest_get_url_prefix') ? rest_get_url_prefix() : 'wp-json', '/');
     return $uri !== '' && $prefix !== '' && strpos($uri, '/' . $prefix . '/') !== false;
 }
@@ -863,8 +863,7 @@ function agumail_cart_restorable_lines(array $lines) {
 
 /** The page the link was opened on, as a path. */
 function agumail_cart_restore_same_page() {
-    // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- only the path is kept, and the redirect is validated.
-    $uri = isset($_SERVER['REQUEST_URI']) && is_string($_SERVER['REQUEST_URI']) ? wp_unslash($_SERVER['REQUEST_URI']) : '';
+    $uri = isset($_SERVER['REQUEST_URI']) && is_string($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '';
     $parts = explode('?', $uri, 2);
     $path = $parts[0];
     return $path !== '' && $path[0] === '/' && strpos($path, '//') !== 0 ? $path : home_url('/');
@@ -876,8 +875,8 @@ function agumail_cart_restore_same_page() {
  * wp-admin, which is where wp_safe_redirect() would send a shopper.
  */
 function agumail_cart_restore_redirect($url) {
-    // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-    $kept = is_array($_GET) ? wp_unslash($_GET) : array();
+    // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- a link's own params, passed on to the page it lands on.
+    $kept = is_array($_GET) ? map_deep(wp_unslash($_GET), 'sanitize_text_field') : array();
     unset($kept['agumail_cart'], $kept['agumail_token']);
     if ($kept) {
         $url .= (strpos($url, '?') === false ? '?' : '&') . http_build_query($kept, '', '&', PHP_QUERY_RFC3986);

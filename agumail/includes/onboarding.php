@@ -4,9 +4,9 @@
 // Activating the plugin from the Plugins screen takes the merchant who did it
 // to the AguMail page, once. Until the site is connected, its row on the
 // Plugins screen links to Connect and to a free AguMail account, and a notice
-// on the Dashboard, the Plugins screen and WooCommerce's own screens offers
-// the way in (the one-click connect on a store, the AguMail page elsewhere);
-// the merchant can dismiss it for good. Once connected, the row links to
+// on the Dashboard and the Plugins screen offers the way in (the one-click
+// connect on a store, the AguMail page elsewhere); the merchant can dismiss it
+// for good. Once connected, the row links to
 // Settings and the notice is gone.
 //
 // A store also hears, once each, when its plan stops or starts carrying store
@@ -44,11 +44,14 @@ function agumail_onboarding_register_admin() {
  * (the merchant is busy with the others), nor for a store already connected.
  */
 function agumail_onboarding_arm_redirect($network_wide = false) {
-    // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- plugins.php checked its own nonce; only which of its actions is running is read.
-    $request = $_REQUEST;
-    $bulk = isset($request['activate-multi'])
-        || (isset($request['action']) && $request['action'] === 'activate-selected')
-        || (isset($request['action2']) && $request['action2'] === 'activate-selected');
+    // phpcs:disable WordPress.Security.NonceVerification.Recommended -- plugins.php checked its own nonce; only which of its actions is running is read.
+    $bulk = isset($_REQUEST['activate-multi']);
+    foreach (array('action', 'action2') as $name) {
+        if (isset($_REQUEST[$name]) && is_string($_REQUEST[$name]) && sanitize_key(wp_unslash($_REQUEST[$name])) === 'activate-selected') {
+            $bulk = true;
+        }
+    }
+    // phpcs:enable
     if ($network_wide || $bulk || agumail_is_cli() || (defined('REST_REQUEST') && REST_REQUEST) || wp_doing_ajax()
         || agumail_has_api_key() || get_current_user_id() <= 0) {
         return;
@@ -71,10 +74,11 @@ function agumail_onboarding_redirect() {
         return;
     }
     delete_transient(AGUMAIL_ACTIVATION_REDIRECT);
-    // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- only where the merchant is, to leave a bulk activation and our own page alone.
-    $query = $_GET;
-    if (!current_user_can(AGUMAIL_ADMIN_CAPABILITY) || agumail_has_api_key() || isset($query['activate-multi'])
-        || (isset($query['page']) && $query['page'] === AGUMAIL_ADMIN_PAGE)) {
+    // phpcs:disable WordPress.Security.NonceVerification.Recommended -- only where the merchant is, to leave a bulk activation and our own page alone.
+    $bulk = isset($_GET['activate-multi']);
+    $page = isset($_GET['page']) && is_string($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
+    // phpcs:enable
+    if (!current_user_can(AGUMAIL_ADMIN_CAPABILITY) || agumail_has_api_key() || $bulk || $page === AGUMAIL_ADMIN_PAGE) {
         return;
     }
     wp_safe_redirect(agumail_admin_page_url());
@@ -120,21 +124,10 @@ function agumail_onboarding_notice_due() {
     return agumail_onboarding_screen_due();
 }
 
-/** The Dashboard, the Plugins screen and WooCommerce's own screens, never the AguMail page itself. */
+/** The Dashboard and the Plugins screen only. The AguMail page says it all already. */
 function agumail_onboarding_screen_due() {
     $screen = function_exists('get_current_screen') ? get_current_screen() : null;
-    if (!$screen || empty($screen->id)) {
-        return false;
-    }
-    // The settings page says it all already.
-    if (substr($screen->id, -strlen('_page_' . AGUMAIL_ADMIN_PAGE)) === '_page_' . AGUMAIL_ADMIN_PAGE) {
-        return false;
-    }
-    $screens = array('dashboard', 'plugins');
-    if (agumail_woocommerce_active() && function_exists('wc_get_screen_ids')) {
-        $screens = array_merge($screens, (array) wc_get_screen_ids());
-    }
-    return in_array($screen->id, $screens, true);
+    return $screen && !empty($screen->id) && in_array($screen->id, array('dashboard', 'plugins'), true);
 }
 
 /**

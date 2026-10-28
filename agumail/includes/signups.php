@@ -337,7 +337,7 @@ add_action('wp_enqueue_scripts', 'agumail_signups_enqueue_identify', 20);
 
 /** {email, sig} for the page to pass to the AguMail script, or null when tracking is off, the visitor may not be signed for, or there is no signature. */
 function agumail_signup_identity($email) {
-    if (!agumail_switch_on('agumail_tracking_enabled') || !agumail_tracking_site() || agumail_is_staff() || !agumail_signup_may_sign()) {
+    if (!agumail_tracking_on() || !agumail_tracking_site() || agumail_is_staff() || !agumail_signup_may_sign()) {
         return null;
     }
     $email = agumail_identify_email(agumail_normalize_email($email));

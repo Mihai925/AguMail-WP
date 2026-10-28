@@ -66,7 +66,10 @@ function agumail_connect_register_admin() {
             : __('Your AguMail account and this site.', 'agumail'),
     ));
     agumail_admin_register_action('connect_start', 'agumail_connect_start');
-    agumail_admin_register_action('connect_save_advanced', 'agumail_connect_save_advanced');
+    agumail_admin_register_action('connect_save_advanced', 'agumail_connect_save_advanced', array(
+        'agumail_api_key' => 'text',
+        'agumail_api_url' => 'text',
+    ));
     agumail_admin_register_action('connect_disconnect', 'agumail_connect_disconnect');
     agumail_admin_register_action('connect_store', 'agumail_connect_store');
     agumail_admin_register_action('connect_check', 'agumail_connect_check');
@@ -211,13 +214,21 @@ function agumail_connect_on_settings_page() {
     if (!is_admin() || wp_doing_ajax() || wp_doing_cron()) {
         return;
     }
-    $query = wp_unslash($_GET); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- the callback is checked against the kept state.
-    $page = isset($query['page']) && is_string($query['page']) ? sanitize_key($query['page']) : '';
+    // phpcs:disable WordPress.Security.NonceVerification.Recommended -- the callback is checked against the kept state.
+    $page = isset($_GET['page']) && is_string($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
+    $callback = isset($_GET['agumail_connect']) && is_string($_GET['agumail_connect']) && sanitize_key(wp_unslash($_GET['agumail_connect'])) === 'callback';
+    $query = array();
+    foreach (array('state', 'code', 'error') as $name) {
+        if ($callback && isset($_GET[$name]) && is_string($_GET[$name])) {
+            $query[$name] = sanitize_text_field(wp_unslash($_GET[$name]));
+        }
+    }
+    // phpcs:enable
     if ($page !== AGUMAIL_ADMIN_PAGE || !current_user_can(AGUMAIL_ADMIN_CAPABILITY)) {
         return;
     }
-    if (isset($query['agumail_connect']) && $query['agumail_connect'] === 'callback') {
-        agumail_connect_finish(is_array($query) ? $query : array());
+    if ($callback) {
+        agumail_connect_finish($query);
         return;
     }
     agumail_connect_refresh_if_stale();

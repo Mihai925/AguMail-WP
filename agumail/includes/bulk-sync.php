@@ -185,7 +185,10 @@ function agumail_bulk_register_admin() {
         'icon'        => 'database',
         'description' => __('Customers, products and order history, sent in the background.', 'agumail'),
     ));
-    agumail_admin_register_action('bulk_sync_start', 'agumail_bulk_start');
+    agumail_admin_register_action('bulk_sync_start', 'agumail_bulk_start', array(
+        'agumail_bulk_resume' => 'text',
+        'agumail_bulk_months' => 'int',
+    ));
 }
 
 function agumail_bulk_start(array $request = array()) {

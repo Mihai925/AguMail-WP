@@ -117,8 +117,8 @@ function agumail_cf7_save($contact_form, $args = array(), $context = 'save') {
     if (!isset($_POST['agumail-signup']) || !is_array($_POST['agumail-signup']) || !is_object($contact_form) || !method_exists($contact_form, 'set_properties')) {
         return;
     }
-    // phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- as above; every value is cleaned below.
-    $posted = wp_unslash($_POST['agumail-signup']);
+    // phpcs:ignore WordPress.Security.NonceVerification.Missing -- as above.
+    $posted = map_deep(wp_unslash($_POST['agumail-signup']), 'sanitize_text_field');
     $fields = array();
     foreach (array_keys(agumail_cf7_parts()) as $part) {
         $name = isset($posted['fields'][$part]) && is_string($posted['fields'][$part]) ? trim($posted['fields'][$part]) : '';

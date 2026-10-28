@@ -2,8 +2,8 @@
 // Onboarding: from activating the plugin to a connected store. The merchant
 // who activates it lands on the settings page, once; the Plugins row links to
 // Connect until the store is connected, then to Settings; and a notice on the
-// Dashboard, Plugins and WooCommerce screens offers the one-click connect
-// until the store is connected or the merchant dismisses it.
+// Dashboard and Plugins screens offers the one-click connect until the store
+// is connected or the merchant dismisses it.
 
 if (!function_exists('wc_get_screen_ids')) {
     /** A few of WooCommerce's own admin screens, as wc_get_screen_ids() lists them. */
@@ -253,13 +253,13 @@ function test_onboarding_the_plugins_row_links_to_connect_then_to_settings() {
 
 // ── The connect notice ──
 
-function test_onboarding_the_notice_shows_on_the_dashboard_plugins_and_woocommerce_screens_only() {
+function test_onboarding_the_notice_shows_on_the_dashboard_and_plugins_screens_only() {
     onboarding_not_connected();
     onboarding_sign_in(1);
-    foreach (array('dashboard', 'plugins', 'woocommerce_page_wc-settings', 'woocommerce_page_wc-orders', 'edit-product') as $screen) {
+    foreach (array('dashboard', 'plugins') as $screen) {
         expect_that(strpos(onboarding_notice_on($screen), 'Connect AguMail to start syncing your customers, orders and carts.') !== false, "no connect notice on $screen");
     }
-    foreach (array('toplevel_page_agumail', 'edit-post', 'options-general', null) as $screen) {
+    foreach (array('woocommerce_page_wc-settings', 'woocommerce_page_wc-orders', 'edit-product', 'toplevel_page_agumail', 'edit-post', 'options-general', null) as $screen) {
         expect_same('', onboarding_notice_on($screen), 'a connect notice on ' . var_export($screen, true));
     }
     expect_same(array(), agm_writes(), 'showing the notice wrote something');

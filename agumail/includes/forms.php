@@ -33,7 +33,13 @@ function agumail_forms_init() {
         'description' => __('Signup forms you publish in AguMail.', 'agumail'),
     ));
     agumail_admin_register_action('forms_refresh', 'agumail_forms_refresh_action');
-    agumail_admin_register_action('forms_save_popup', 'agumail_forms_save_popup');
+    agumail_admin_register_action('forms_save_popup', 'agumail_forms_save_popup', array(
+        'agumail_popup_slug'      => 'text',
+        'agumail_popup_trigger'   => 'key',
+        'agumail_popup_delay'     => 'text',
+        'agumail_popup_scroll'    => 'text',
+        'agumail_popup_frequency' => 'text',
+    ));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

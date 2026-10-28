@@ -6,7 +6,8 @@
  *
  * v1 (1.2.0) reads the agumail_api_url / agumail_api_key options. v2 reads AGUMAIL_API_URL (wp-config, from
  * .state/config.json, which the caller writes), the key option, and the connection and config options from
- * the contracts. The config mirrors what the fake AguMail's ping answers.
+ * the contracts. The config mirrors what the fake AguMail's ping answers. Website tracking is switched on,
+ * as a merchant who wants it does from the notice or the settings page, since the specs read the site script.
  */
 
 if (!defined('WP_CLI') || !WP_CLI) {
@@ -37,6 +38,7 @@ update_option('agumail_config', array(
     'identifySecret' => $identify,
 ));
 update_option('agumail_connected_at', time());
+update_option('agumail_tracking_enabled', 'yes');
 delete_option('agumail_backoff_until');
 
 WP_CLI::success('AguMail connected, API URL ' . $api_url);

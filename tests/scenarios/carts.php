@@ -256,6 +256,7 @@ function test_carts_capture_without_a_session_keeps_nothing_and_starts_none() {
 }
 
 function test_carts_capture_answers_with_the_signature_tracking_makes() {
+    update_option('agumail_tracking_enabled', 'yes');
     update_option('agumail_config', array(
         'siteKey'        => 'site_abc123',
         'siteScriptUrl'  => 'https://api.agumail.test/t/site.js',
@@ -280,6 +281,19 @@ function test_carts_capture_answers_with_the_signature_tracking_makes() {
     if ($expected !== '') {
         expect_same($expected, isset($again['response']['sig']) ? $again['response']['sig'] : null, 'the repeat was not signed');
     }
+}
+
+function test_carts_capture_hands_out_no_signature_while_tracking_is_off() {
+    update_option('agumail_config', array(
+        'siteKey'        => 'site_abc123',
+        'siteScriptUrl'  => 'https://api.agumail.test/t/site.js',
+        'identifySecret' => '0MuzRMHpG2I2mkdDM-TLd9cwZ3MJcsUZ1e6qXE5oqbg',
+    ));
+    $products = carts_catalogue();
+    WC()->cart->add_line($products['mug'], 1);
+    $result = carts_capture('ada.lovelace@example.com');
+    expect_same(array(), carts_pick($result['response'], array('sig', 'email')), 'a signature was handed out with website tracking off');
+    expect_same(true, $result['response']['ok'], 'the capture did not answer ok');
 }
 
 // ── The checkout's own updates, for when the script never ran ──

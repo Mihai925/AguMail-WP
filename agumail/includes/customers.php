@@ -288,7 +288,7 @@ function agumail_customers_changed($user_id) {
 /** The Account details form is being saved: its own handler queues the account once, with the switch's answer. */
 function agumail_customers_saving_account() {
     // phpcs:ignore WordPress.Security.NonceVerification.Missing -- WooCommerce checks this form's nonce before it saves anything.
-    return isset($_POST['action']) && $_POST['action'] === 'save_account_details';
+    return isset($_POST['action']) && is_string($_POST['action']) && sanitize_key(wp_unslash($_POST['action'])) === 'save_account_details';
 }
 
 function agumail_customers_profile_updated($user_id, $old_user = null) {
@@ -642,7 +642,12 @@ function agumail_customers_reverse_sync_batch(array $accounts) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function agumail_customers_register_admin() {
-    agumail_admin_register_action('customers_save', 'agumail_customers_save_settings');
+    agumail_admin_register_action('customers_save', 'agumail_customers_save_settings', array(
+        'agumail_registration_form'  => 'text',
+        'agumail_registration_optin' => 'text',
+        'agumail_account_toggle'     => 'text',
+        'agumail_consent_label'      => 'label',
+    ));
     if (!agumail_woocommerce_active()) {
         // No checkout and no My Account: the WordPress registration form, and the checkbox's words, which the Checkout section keeps on a store.
         agumail_admin_register_section('accounts', __('Registration', 'agumail'), 'agumail_customers_render_registration_section', 45, array(

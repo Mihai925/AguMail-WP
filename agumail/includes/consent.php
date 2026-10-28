@@ -74,16 +74,17 @@ function agumail_render_checkout_optin() {
  * not an answer.
  */
 function agumail_checkout_optin_ticked_on_screen() {
-    // phpcs:disable WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput -- WooCommerce checks the order review nonce; only whether two fields are non-empty is read, and nothing is saved or printed.
-    $posted = $_POST;
+    // phpcs:disable WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput -- WooCommerce checks the order review nonce; two fields are read, each only as whether it is non-empty, and nothing is saved or printed.
+    $shown = !empty($_POST['agumail_optin_shown']);
+    $ticked = !empty($_POST['agumail_optin']);
     if (isset($_POST['post_data']) && is_string($_POST['post_data'])) {
-        parse_str(wp_unslash($_POST['post_data']), $posted);
+        $form = array();
+        parse_str(wp_unslash($_POST['post_data']), $form);
+        $shown = !empty($form['agumail_optin_shown']);
+        $ticked = !empty($form['agumail_optin']);
     }
     // phpcs:enable
-    if (!empty($posted['agumail_optin_shown'])) {
-        return !empty($posted['agumail_optin']);
-    }
-    return agumail_checkout_optin_starts_ticked();
+    return $shown ? $ticked : agumail_checkout_optin_starts_ticked();
 }
 
 add_action('woocommerce_checkout_create_order', 'agumail_record_classic_optin', 10, 1);

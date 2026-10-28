@@ -22,6 +22,7 @@ function builders_setup($now = 1790000000) {
 
 /** Tracking on, with the site script and identify secret AguMail handed over. */
 function builders_tracking() {
+    update_option('agumail_tracking_enabled', 'yes');
     update_option('agumail_config', array(
         'siteKey'        => 'site_abc123',
         'siteScriptUrl'  => 'https://api.agumail.test/p/_/v1/site.js',

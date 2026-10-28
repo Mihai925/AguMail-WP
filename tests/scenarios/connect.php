@@ -892,8 +892,9 @@ function connect_foreign_config() {
     ));
 }
 
-/** A storefront page with a form on it: the address of each AguMail script it enqueued. */
+/** A storefront page with a form on it, website tracking switched on: the address of each AguMail script it enqueued. */
 function connect_storefront_scripts() {
+    update_option('agumail_tracking_enabled', 'yes');
     unset($GLOBALS['agm']['scripts']['agumail-site'], $GLOBALS['agm']['scripts']['agumail-forms']);
     agm_request('storefront page', 'shopper', function () {
         do_action('init');

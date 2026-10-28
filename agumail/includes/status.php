@@ -23,9 +23,9 @@ function agumail_status_register_admin() {
         'icon'        => 'info-outline',
         'description' => __('What was sent, and anything waiting or failed.', 'agumail'),
     ));
-    agumail_admin_register_action('status_retry', 'agumail_status_retry');
+    agumail_admin_register_action('status_retry', 'agumail_status_retry', array('id' => 'int'));
     agumail_admin_register_action('status_retry_all', 'agumail_status_retry_all');
-    agumail_admin_register_action('status_discard', 'agumail_status_discard');
+    agumail_admin_register_action('status_discard', 'agumail_status_discard', array('id' => 'int', 'version' => 'int'));
     agumail_admin_register_action('status_discard_all', 'agumail_status_discard_all');
 }
 

@@ -634,6 +634,7 @@ function shopper_path_builder_fakes() {
         require_once dirname(__DIR__) . '/fakes/builders/' . $builder . '.php';
     }
     update_option('agumail_config', array('siteKey' => 'site_abc123', 'siteScriptUrl' => 'https://api.agumail.test/p/_/v1/site.js', 'identifySecret' => 'secret'));
+    update_option('agumail_tracking_enabled', 'yes');
 }
 
 function shopper_path_signup_count($name, $expected) {
