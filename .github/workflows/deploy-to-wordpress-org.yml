@@ -1,0 +1,105 @@
+name: Deploy to WordPress.org
+
+# Publishes agumail/ to https://plugins.svn.wordpress.org/agumail as trunk and
+# tags/<version>, plus the .wordpress-org/ images as the listing assets, in one
+# SVN commit.
+#
+# Release: bump the version in the agumail.php header, AGUMAIL_VERSION and the
+# readme's Stable tag, then publish a GitHub release whose tag is that version
+# (e.g. 1.0.1, no "v"). Run it by hand from the Actions tab for a dry run.
+#
+# Needs the repo secrets WPORG_SVN_USERNAME (mihaij95) and WPORG_SVN_PASSWORD
+# (the SVN password from the wp.org profile, Account & Security), dry runs too.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Dry run (no SVN commit)"
+        type: boolean
+        default: true
+      tag:
+        description: "Version to deploy (e.g. 1.0.0). Leave blank to dry-run from main HEAD."
+        type: string
+        required: false
+
+concurrency:
+  group: wporg-svn
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Push to wp.org SVN
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || false }}
+    steps:
+      - name: Resolve ref
+        id: ref
+        env:
+          EVENT: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$EVENT" = "release" ]; then
+            REF="$RELEASE_TAG"
+          elif [ -n "$INPUT_TAG" ]; then
+            REF="$INPUT_TAG"
+          elif [ "$DRY_RUN" = "true" ]; then
+            REF=""
+          else
+            echo "::error::A tag is required for a manual deploy that is not a dry run"
+            exit 1
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "Checkout ref: ${REF:-<workflow commit>}"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+
+      - name: Resolve and verify version
+        id: version
+        env:
+          REF: ${{ steps.ref.outputs.ref }}
+        run: |
+          HEADER=$(grep -m1 -E '^\s*\*\s*Version:' agumail/agumail.php | awk -F: '{print $2}' | tr -d ' \r')
+          CONSTANT=$(sed -nE "s/^define\('AGUMAIL_VERSION', *'([^']+)'\);.*/\1/p" agumail/agumail.php | head -n1)
+          STABLE=$(grep -m1 -E '^Stable tag:' agumail/readme.txt | awk -F: '{print $2}' | tr -d ' \r')
+
+          VERSION="${REF#v}"
+          VERSION="${VERSION:-$HEADER}"
+
+          echo "Git tag:           ${REF:-<none, using the plugin header>}"
+          echo "Plugin header:     $HEADER"
+          echo "AGUMAIL_VERSION:   $CONSTANT"
+          echo "readme Stable tag: $STABLE"
+
+          if ! printf '%s' "$VERSION" | grep -qE '^[0-9]+(\.[0-9]+)*$'; then
+            echo "::error::Version '$VERSION' must be digits and dots, wp.org refuses anything else"
+            exit 1
+          fi
+          if [ "$HEADER" != "$VERSION" ] || [ "$CONSTANT" != "$VERSION" ] || [ "$STABLE" != "$VERSION" ]; then
+            echo "::error::Version mismatch: the tag, the plugin header, AGUMAIL_VERSION and the readme Stable tag must all be $VERSION"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Stage listing assets
+        run: bash .github/scripts/stage-wporg-assets.sh .wporg-assets
+
+      - name: Deploy to wp.org
+        uses: 10up/action-wordpress-plugin-deploy@stable
+        with:
+          dry-run: ${{ env.DRY_RUN }}
+        env:
+          SVN_USERNAME: ${{ secrets.WPORG_SVN_USERNAME }}
+          SVN_PASSWORD: ${{ secrets.WPORG_SVN_PASSWORD }}
+          SLUG: agumail
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_DIR: agumail
+          ASSETS_DIR: .wporg-assets

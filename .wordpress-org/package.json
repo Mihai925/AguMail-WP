@@ -1,0 +1,13 @@
+{
+  "name": "agumail-wporg-assets",
+  "private": true,
+  "description": "Renders the wp.org banner and icon for the AguMail plugin.",
+  "type": "module",
+  "scripts": {
+    "render": "node render.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.63.0",
+    "sharp": "0.35.4"
+  }
+}

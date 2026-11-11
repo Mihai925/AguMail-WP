@@ -1,0 +1,73 @@
+name: Update wp.org readme & assets
+
+# Pushes agumail/readme.txt and the .wordpress-org/ listing images to wp.org
+# without a release, e.g. after bumping "Tested up to" or replacing a banner.
+# Code only ever goes out through a release (deploy-to-wordpress-org.yml).
+#
+# A readme whose Stable tag is not on wp.org yet belongs to the next release,
+# so it is left for that release to deploy. That also makes it safe to push
+# readme or asset changes before the very first release.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'agumail/readme.txt'
+      - '.wordpress-org/**'
+  workflow_dispatch:
+
+concurrency:
+  group: wporg-svn
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Push readme & assets to wp.org
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the stable tag is on wp.org
+        id: gate
+        run: |
+          STABLE=$(grep -m1 -E '^Stable tag:' agumail/readme.txt | awk -F: '{print $2}' | tr -d ' \r')
+          if [ -z "$STABLE" ]; then
+            echo "::error::agumail/readme.txt has no Stable tag"
+            exit 1
+          fi
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' "https://plugins.svn.wordpress.org/agumail/tags/$STABLE/")
+          case "$CODE" in
+            200)
+              echo "ready=true" >> "$GITHUB_OUTPUT"
+              ;;
+            404)
+              echo "::notice::tags/$STABLE is not on wp.org yet. Publishing the $STABLE release deploys this readme and the assets with the code."
+              echo "ready=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::Could not check tags/$STABLE on plugins.svn.wordpress.org (HTTP $CODE)"
+              exit 1
+              ;;
+          esac
+
+      - name: Stage readme and assets
+        id: stage
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          # The action reads readme.txt from the workspace root.
+          cp agumail/readme.txt readme.txt
+          bash .github/scripts/stage-wporg-assets.sh .wporg-assets
+
+      - name: Update readme & assets on wp.org
+        if: steps.gate.outputs.ready == 'true'
+        uses: 10up/action-wordpress-plugin-asset-update@stable
+        env:
+          SVN_USERNAME: ${{ secrets.WPORG_SVN_USERNAME }}
+          SVN_PASSWORD: ${{ secrets.WPORG_SVN_PASSWORD }}
+          SLUG: agumail
+          README_NAME: readme.txt
+          ASSETS_DIR: .wporg-assets
+          SKIP_ASSETS: ${{ steps.stage.outputs.has_assets != 'true' }}
+          IGNORE_OTHER_FILES: true

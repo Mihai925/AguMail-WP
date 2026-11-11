@@ -110,6 +110,15 @@ Links in AguMail emails carry an `agm_cid` parameter. The plugin keeps it in a 3
 
 Yes, with both.
 
+== Screenshots ==
+
+1. Connect your site to AguMail in one click, or create a free account first.
+2. Once connected, your customers, products and order history sync in the background.
+3. Your AguMail signup forms, each with its shortcode, and the site-wide popup.
+4. The AguMail form block, shown in the page or as a popup.
+5. The marketing checkbox on the WooCommerce block checkout.
+6. Contact Form 7, WPForms and Elementor Pro forms can send their signups to AguMail.
+
 == External services ==
 
 This plugin connects your site to AguMail (https://agumail.com), an email marketing service. Nothing is sent to AguMail until you connect the site.
