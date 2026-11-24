@@ -6,7 +6,7 @@ Tested up to: 7.1
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 11.2
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -110,6 +110,14 @@ Links in AguMail emails carry an `agm_cid` parameter. The plugin keeps it in a 3
 
 Yes, with both.
 
+= Does it respect cookie consent? =
+
+Yes. With a consent plugin that supports the WP Consent API (Complianz, CookieYes and others), the campaign cookie is set, and the website tracking script loads, only once a visitor allows marketing cookies. A visitor who arrives from an email and consents afterwards still has the campaign kept. This is decided in the visitor's browser, so it works with page caching. Without such a plugin, the cookies work as described above.
+
+= How do I report a security issue? =
+
+Email support@agumail.com with "Security" in the subject, and please don't post it on the support forum. The plugin's SECURITY.md has the details.
+
 == Screenshots ==
 
 1. Connect your site to AguMail in one click, or create a free account first.
@@ -150,6 +158,14 @@ AguMail's privacy policy: https://agumail.com/privacy
 On a site without WooCommerce, the plugin runs its background tasks on Action Scheduler 4.2.0 (https://actionscheduler.org, GPLv3 or later), bundled in vendor/woocommerce/action-scheduler. On a WooCommerce store, WooCommerce's own copy is used.
 
 == Changelog ==
+
+= 1.0.1 =
+* Security: the settings actions check the nonce and capability as soon as a request arrives, before anything runs.
+* Security: every database query passes table names and values through $wpdb->prepare().
+* New: the campaign and website tracking cookies wait for consent when a WP Consent API consent plugin is active.
+* New: the plugin's data on a person can be exported and erased from Tools > Export Personal Data and Erase Personal Data.
+* Tweak: the database tables are only checked when their version changes, and uninstalling removes every option and transient the plugin kept.
+* Tweak: the code now follows the WordPress Coding Standards.
 
 = 1.0.0 =
 * Initial release: for any WordPress site, with store sync on WooCommerce.

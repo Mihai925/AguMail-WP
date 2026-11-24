@@ -44,7 +44,10 @@ class Agm_Fake_WPDB {
                 case '%f':
                     return (string) (float) $value;
                 case '%i':
-                    return '`' . str_replace('`', '', (string) $value) . '`';
+                    // WordPress quotes every identifier; plain table names stay bare here so the
+                    // fakes and scenarios match one spelling of each table, however it was written.
+                    $name = str_replace('`', '', (string) $value);
+                    return preg_match('/^\w+$/', $name) ? $name : '`' . $name . '`';
                 default:
                     return "'" . addslashes((string) $value) . "'";
             }

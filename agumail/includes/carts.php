@@ -1,49 +1,53 @@
 <?php
-// Carts: keeping the shopper's cart row current, checkout email capture, the
-// restore link and cart housekeeping.
-//
-// A cart is worth recording once somebody can be reminded of it: a signed-in
-// customer, or a guest whose email the checkout script captured when they left
-// the email field. The row lives in the plugin's carts table; the drain sends
-// it to AguMail later, so a shopper's request never calls out.
-//
-//   Capture     The checkout, cart and My Account pages load assets/js/capture.js,
-//               which posts an email to ?wc-ajax=agumail_capture when the shopper
-//               leaves an email field. The email goes into the WooCommerce
-//               session and, when the cart has items, into the cart row: one
-//               write. Only the email: the marketing checkbox counts on a
-//               submitted order alone, so a captured contact claims no consent.
-//   Cart hooks  Adding, removing, changing quantities, coupons and the saved cart
-//               merged at login rewrite the row, once per request, at shutdown. A
-//               cart the shopper empties is marked emptied and its id retired. A
-//               cart WooCommerce empties because it was ordered is closed by its
-//               order: a paid order is sent and closes it; an order not paid yet
-//               (bank transfer, cheque) is not sent, so the row is closed here.
-//   Restore     A recovery email links to the checkout page with
-//               ?agumail_cart=<id>&agumail_token=<t>, which rebuilds that cart in
-//               any browser and goes on to checkout.
-//   Drain       Changed rows move into the outbox and go to /api/v1/carts before
-//               orders, so a purchase sent in the same run closes them.
-//
-// The session keys are named by the constants below. The orders feature stamps
-// an order with agumail_cart_id_for_current_session().
+/**
+ * Carts: keeping the shopper's cart row current, checkout email capture, the
+ * restore link and cart housekeeping.
+ *
+ * A cart is worth recording once somebody can be reminded of it: a signed-in
+ * customer, or a guest whose email the checkout script captured when they left
+ * the email field. The row lives in the plugin's carts table; the drain sends
+ * it to AguMail later, so a shopper's request never calls out.
+ *
+ *   Capture     The checkout, cart and My Account pages load assets/js/capture.js,
+ *               which posts an email to ?wc-ajax=agumail_capture when the shopper
+ *               leaves an email field. The email goes into the WooCommerce
+ *               session and, when the cart has items, into the cart row: one
+ *               write. Only the email: the marketing checkbox counts on a
+ *               submitted order alone, so a captured contact claims no consent.
+ *   Cart hooks  Adding, removing, changing quantities, coupons and the saved cart
+ *               merged at login rewrite the row, once per request, at shutdown. A
+ *               cart the shopper empties is marked emptied and its id retired. A
+ *               cart WooCommerce empties because it was ordered is closed by its
+ *               order: a paid order is sent and closes it; an order not paid yet
+ *               (bank transfer, cheque) is not sent, so the row is closed here.
+ *   Restore     A recovery email links to the checkout page with
+ *               ?agumail_cart=<id>&agumail_token=<t>, which rebuilds that cart in
+ *               any browser and goes on to checkout.
+ *   Drain       Changed rows move into the outbox and go to /api/v1/carts before
+ *               orders, so a purchase sent in the same run closes them.
+ *
+ * The session keys are named by the constants below. The orders feature stamps
+ * an order with agumail_cart_id_for_current_session().
+ *
+ * @package AguMail
+ */
 
-if (!defined('ABSPATH')) {
-    exit;
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
 }
 
-define('AGUMAIL_SESSION_CART_ID', 'agumail_cart_id');
-define('AGUMAIL_SESSION_EMAIL', 'agumail_email');
-define('AGUMAIL_SESSION_CAPTURES', 'agumail_captures');
-define('AGUMAIL_SESSION_EMAIL_BY', 'agumail_email_captured_by');
-define('AGUMAIL_SESSION_RETIRED', 'agumail_cart_retired');
-define('AGUMAIL_CAPTURE_LIMIT', 20);
-define('AGUMAIL_CAPTURE_ADDRESS_LIMIT', 60);
-define('AGUMAIL_CAPTURE_ADDRESS_CARTS', 30);
-define('AGUMAIL_CAPTURE_ACTION', 'agumail_capture');
-define('AGUMAIL_CART_ITEM_DATA_MAX', 2000);
-define('AGUMAIL_CARTS_FINISHED_KEPT', 14 * DAY_IN_SECONDS);
-define('AGUMAIL_CARTS_KEPT', 90 * DAY_IN_SECONDS);
+define( 'AGUMAIL_SESSION_CART_ID', 'agumail_cart_id' );
+define( 'AGUMAIL_SESSION_EMAIL', 'agumail_email' );
+define( 'AGUMAIL_SESSION_CAPTURES', 'agumail_captures' );
+define( 'AGUMAIL_SESSION_EMAIL_BY', 'agumail_email_captured_by' );
+define( 'AGUMAIL_SESSION_RETIRED', 'agumail_cart_retired' );
+define( 'AGUMAIL_CAPTURE_LIMIT', 20 );
+define( 'AGUMAIL_CAPTURE_ADDRESS_LIMIT', 60 );
+define( 'AGUMAIL_CAPTURE_ADDRESS_CARTS', 30 );
+define( 'AGUMAIL_CAPTURE_ACTION', 'agumail_capture' );
+define( 'AGUMAIL_CART_ITEM_DATA_MAX', 2000 );
+define( 'AGUMAIL_CARTS_FINISHED_KEPT', 14 * DAY_IN_SECONDS );
+define( 'AGUMAIL_CARTS_KEPT', 90 * DAY_IN_SECONDS );
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Whose cart, and whether to record it at all.
@@ -56,19 +60,15 @@ define('AGUMAIL_CARTS_KEPT', 90 * DAY_IN_SECONDS);
  * is not a store manager trying out their own checkout.
  */
 function agumail_carts_active() {
-    if (!agumail_ready() || !agumail_store_sync_on() || !function_exists('WC')) {
-        return false;
-    }
-    $wc = WC();
-    if (!$wc || empty($wc->cart) || empty($wc->session)) {
-        return false;
-    }
-    return !agumail_cart_staff();
+	if ( ! agumail_ready() || ! agumail_store_sync_on() || ! agumail_wc_cart() || ! agumail_wc_session() ) {
+		return false;
+	}
+	return ! agumail_cart_staff();
 }
 
 /** Somebody who runs the store, whose own test carts are not recorded. */
 function agumail_cart_staff() {
-    return function_exists('agumail_is_staff') ? (bool) agumail_is_staff() : current_user_can(AGUMAIL_ADMIN_CAPABILITY);
+	return function_exists( 'agumail_is_staff' ) ? (bool) agumail_is_staff() : current_user_can( AGUMAIL_ADMIN_CAPABILITY );
 }
 
 /**
@@ -77,8 +77,8 @@ function agumail_cart_staff() {
  * check is taken to have one.
  */
 function agumail_cart_session_started() {
-    $session = WC()->session;
-    return !method_exists($session, 'has_session') || $session->has_session();
+	$session = WC()->session;
+	return ! method_exists( $session, 'has_session' ) || $session->has_session();
 }
 
 /**
@@ -87,46 +87,63 @@ function agumail_cart_session_started() {
  * is now, unless they typed another address at checkout while signed in.
  */
 function agumail_cart_email() {
-    $session = WC()->session;
-    $captured = agumail_normalize_email($session->get(AGUMAIL_SESSION_EMAIL, ''));
-    $user_id = get_current_user_id();
-    if (!$user_id) {
-        return $captured;
-    }
-    if ($captured !== '' && (int) $session->get(AGUMAIL_SESSION_EMAIL_BY, 0) === $user_id) {
-        return $captured;
-    }
-    return agumail_normalize_email(wp_get_current_user()->user_email);
+	$session  = WC()->session;
+	$captured = agumail_normalize_email( $session->get( AGUMAIL_SESSION_EMAIL, '' ) );
+	$user_id  = get_current_user_id();
+	if ( ! $user_id ) {
+		return $captured;
+	}
+	if ( '' !== $captured && (int) $session->get( AGUMAIL_SESSION_EMAIL_BY, 0 ) === $user_id ) {
+		return $captured;
+	}
+	return agumail_normalize_email( wp_get_current_user()->user_email );
 }
 
 // An address typed as a guest is not the account's: once the shopper signs in
 // to an account with another address, it is forgotten. WooCommerce moves a
 // guest's session to the customer on their first page signed in; the login
 // form's own request is caught too.
-add_action('woocommerce_guest_session_to_user_id', 'agumail_cart_guest_session_became_customer', 10, 2);
-add_action('wp_login', 'agumail_cart_signed_in', 10, 2);
+add_action( 'woocommerce_guest_session_to_user_id', 'agumail_cart_guest_session_became_customer', 10, 2 );
+add_action( 'wp_login', 'agumail_cart_signed_in', 10, 2 );
 
-function agumail_cart_guest_session_became_customer($guest_session_id, $user_id) {
-    agumail_cart_forget_guest_email(get_userdata((int) $user_id));
+/**
+ * WooCommerce moved a guest's session to a signed-in customer.
+ *
+ * @param string $guest_session_id The guest's session id.
+ * @param int    $user_id          The customer's user id.
+ */
+function agumail_cart_guest_session_became_customer( $guest_session_id, $user_id ) {
+	agumail_cart_forget_guest_email( get_userdata( (int) $user_id ) );
 }
 
-function agumail_cart_signed_in($login, $user = null) {
-    agumail_cart_forget_guest_email($user);
+/**
+ * The login form's own request.
+ *
+ * @param string       $login The user's login name.
+ * @param WP_User|null $user  The user who signed in.
+ */
+function agumail_cart_signed_in( $login, $user = null ) {
+	agumail_cart_forget_guest_email( $user );
 }
 
-function agumail_cart_forget_guest_email($user) {
-    if (!is_object($user) || empty($user->ID) || !function_exists('WC') || !WC() || empty(WC()->session)) {
-        return;
-    }
-    $session = WC()->session;
-    $captured = agumail_normalize_email($session->get(AGUMAIL_SESSION_EMAIL, ''));
-    if ($captured === '' || (int) $session->get(AGUMAIL_SESSION_EMAIL_BY, 0) === (int) $user->ID) {
-        return;
-    }
-    if ($captured !== agumail_normalize_email($user->user_email)) {
-        $session->set(AGUMAIL_SESSION_EMAIL, null);
-        $session->set(AGUMAIL_SESSION_EMAIL_BY, null);
-    }
+/**
+ * Forgets the address captured while a guest when it is not the account's own.
+ *
+ * @param WP_User|false|null $user The user who signed in.
+ */
+function agumail_cart_forget_guest_email( $user ) {
+	$session = agumail_wc_session();
+	if ( ! is_object( $user ) || empty( $user->ID ) || ! $session ) {
+		return;
+	}
+	$captured = agumail_normalize_email( $session->get( AGUMAIL_SESSION_EMAIL, '' ) );
+	if ( '' === $captured || (int) $session->get( AGUMAIL_SESSION_EMAIL_BY, 0 ) === (int) $user->ID ) {
+		return;
+	}
+	if ( agumail_normalize_email( $user->user_email ) !== $captured ) {
+		$session->set( AGUMAIL_SESSION_EMAIL, null );
+		$session->set( AGUMAIL_SESSION_EMAIL_BY, null );
+	}
 }
 
 /**
@@ -136,8 +153,8 @@ function agumail_cart_forget_guest_email($user) {
  * session.
  */
 function agumail_cart_owner() {
-    $user_id = get_current_user_id();
-    return $user_id ? (string) $user_id : (string) WC()->session->get_customer_id();
+	$user_id = get_current_user_id();
+	return $user_id ? (string) $user_id : (string) WC()->session->get_customer_id();
 }
 
 /**
@@ -146,16 +163,16 @@ function agumail_cart_owner() {
  * checked out is never it: it stays open until its order is sent.
  */
 function agumail_cart_owner_open_row() {
-    $owner = agumail_cart_owner();
-    if ($owner === '' || !agumail_ready()) {
-        return null;
-    }
-    $cart = agumail_cart_find_by_session($owner, array('open'));
-    if (!$cart || $cart['id'] === (string) WC()->session->get(AGUMAIL_SESSION_RETIRED, '')) {
-        return null;
-    }
-    $user_id = get_current_user_id();
-    return !$user_id || $cart['user_id'] === $user_id ? $cart : null;
+	$owner = agumail_cart_owner();
+	if ( '' === $owner || ! agumail_ready() ) {
+		return null;
+	}
+	$cart = agumail_cart_find_by_session( $owner, array( 'open' ) );
+	if ( ! $cart || (string) WC()->session->get( AGUMAIL_SESSION_RETIRED, '' ) === $cart['id'] ) {
+		return null;
+	}
+	$user_id = get_current_user_id();
+	return ! $user_id || $cart['user_id'] === $user_id ? $cart : null;
 }
 
 /**
@@ -165,15 +182,16 @@ function agumail_cart_owner_open_row() {
  * when none.
  */
 function agumail_cart_id_for_current_session() {
-    if (!function_exists('WC') || !WC() || empty(WC()->session)) {
-        return '';
-    }
-    $id = WC()->session->get(AGUMAIL_SESSION_CART_ID, '');
-    if (is_string($id) && $id !== '') {
-        return $id;
-    }
-    $cart = agumail_cart_owner_open_row();
-    return $cart ? (string) $cart['id'] : '';
+	$session = agumail_wc_session();
+	if ( ! $session ) {
+		return '';
+	}
+	$id = $session->get( AGUMAIL_SESSION_CART_ID, '' );
+	if ( is_string( $id ) && '' !== $id ) {
+		return $id;
+	}
+	$cart = agumail_cart_owner_open_row();
+	return $cart ? (string) $cart['id'] : '';
 }
 
 /**
@@ -183,20 +201,29 @@ function agumail_cart_id_for_current_session() {
  * session. Cleared at the end of the request.
  */
 function &agumail_cart_request_state() {
-    static $state = null;
-    if ($state === null) {
-        $state = agumail_cart_fresh_request_state();
-    }
-    return $state;
+	static $state = null;
+	if ( null === $state ) {
+		$state = agumail_cart_fresh_request_state();
+	}
+	return $state;
 }
 
+/** The request state as a request starts, with nothing noted yet. */
 function agumail_cart_fresh_request_state() {
-    return array('changed' => false, 'restoring' => false, 'ordered' => false, 'order_id' => 0, 'checkout_emptied' => false, 'merging' => false);
+	return array(
+		'changed'          => false,
+		'restoring'        => false,
+		'ordered'          => false,
+		'order_id'         => 0,
+		'checkout_emptied' => false,
+		'merging'          => false,
+	);
 }
 
+/** Clears the request state. */
 function agumail_cart_reset_request_state() {
-    $state = &agumail_cart_request_state();
-    $state = agumail_cart_fresh_request_state();
+	$state = &agumail_cart_request_state();
+	$state = agumail_cart_fresh_request_state();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -213,55 +240,58 @@ function agumail_cart_reset_request_state() {
  * reminded of it. Returns whether it wrote.
  */
 function agumail_cart_save_current() {
-    $cart = WC()->cart;
-    if ($cart->is_empty()) {
-        return false;
-    }
-    $email = agumail_cart_email();
-    if ($email === '') {
-        return false;
-    }
-    $session = WC()->session;
-    $id = (string) $session->get(AGUMAIL_SESSION_CART_ID, '');
-    if ($id !== '') {
-        $row = agumail_cart_get($id);
-        if ($row && $row['status'] === 'ordered') {
-            $id = '';
-        }
-    }
-    if ($id === '') {
-        $shared = agumail_cart_owner_open_row();
-        if ($shared) {
-            $id = $shared['id'];
-            $session->set(AGUMAIL_SESSION_CART_ID, $id);
-        }
-    }
-    $fields = array();
-    if ($id === '') {
-        $id = 'wc-' . wp_generate_uuid4();
-        $session->set(AGUMAIL_SESSION_CART_ID, $id);
-        $fields['ip_hash'] = agumail_capture_address_hash();
-    }
-    $lines = array();
-    $value = 0.0;
-    foreach ($cart->get_cart() as $item) {
-        $line = agumail_cart_line($item);
-        $value += $line['line_total'];
-        $lines[] = $line;
-    }
-    // WooCommerce's total once it has worked it out (it does on every cart
-    // change); the lines' own value until then.
-    $total = agumail_money_total($cart->get_total('edit'));
-    $user_id = get_current_user_id();
-    return agumail_cart_save($id, $fields + array(
-        'session_key' => agumail_cart_owner(),
-        'user_id'     => $user_id ? $user_id : null,
-        'email'       => $email,
-        'lines'       => $lines,
-        'total'       => $total > 0 ? $total : $value,
-        'currency'    => get_woocommerce_currency(),
-        'status'      => 'open',
-    ));
+	$cart = WC()->cart;
+	if ( $cart->is_empty() ) {
+		return false;
+	}
+	$email = agumail_cart_email();
+	if ( '' === $email ) {
+		return false;
+	}
+	$session = WC()->session;
+	$id      = (string) $session->get( AGUMAIL_SESSION_CART_ID, '' );
+	if ( '' !== $id ) {
+		$row = agumail_cart_get( $id );
+		if ( $row && 'ordered' === $row['status'] ) {
+			$id = '';
+		}
+	}
+	if ( '' === $id ) {
+		$shared = agumail_cart_owner_open_row();
+		if ( $shared ) {
+			$id = $shared['id'];
+			$session->set( AGUMAIL_SESSION_CART_ID, $id );
+		}
+	}
+	$fields = array();
+	if ( '' === $id ) {
+		$id = 'wc-' . wp_generate_uuid4();
+		$session->set( AGUMAIL_SESSION_CART_ID, $id );
+		$fields['ip_hash'] = agumail_capture_address_hash();
+	}
+	$lines = array();
+	$value = 0.0;
+	foreach ( $cart->get_cart() as $item ) {
+		$line    = agumail_cart_line( $item );
+		$value  += $line['line_total'];
+		$lines[] = $line;
+	}
+	// WooCommerce's total once it has worked it out (it does on every cart
+	// change); the lines' own value until then.
+	$total   = agumail_money_total( $cart->get_total( 'edit' ) );
+	$user_id = get_current_user_id();
+	return agumail_cart_save(
+		$id,
+		$fields + array(
+			'session_key' => agumail_cart_owner(),
+			'user_id'     => $user_id ? $user_id : null,
+			'email'       => $email,
+			'lines'       => $lines,
+			'total'       => $total > 0 ? $total : $value,
+			'currency'    => get_woocommerce_currency(),
+			'status'      => 'open',
+		)
+	);
 }
 
 /**
@@ -269,39 +299,46 @@ function agumail_cart_save_current() {
  * (in the cart's currency), plus the data a plugin added to the item
  * (item_data) and, for an item that belongs to another line such as a bundled
  * product, child => true.
+ *
+ * @param array $item A cart item, as WC_Cart::get_cart() lists it.
  */
-function agumail_cart_line(array $item) {
-    $qty = agumail_quantity(isset($item['quantity']) ? $item['quantity'] : 0);
-    $line_total = isset($item['line_total']) ? agumail_money($item['line_total']) : 0.0;
-    if ($line_total <= 0 && isset($item['data']) && is_object($item['data'])) {
-        $line_total = agumail_money((float) $item['data']->get_price() * $qty);
-    }
-    $line = array(
-        'product_id'   => isset($item['product_id']) ? (int) $item['product_id'] : 0,
-        'variation_id' => isset($item['variation_id']) ? (int) $item['variation_id'] : 0,
-        'variation'    => isset($item['variation']) && is_array($item['variation']) ? $item['variation'] : array(),
-        'qty'          => $qty,
-        'line_total'   => $line_total,
-    );
-    if (agumail_cart_item_is_child($item)) {
-        $line['child'] = true;
-        return $line;
-    }
-    $data = agumail_cart_item_data($item);
-    if ($data) {
-        $line['item_data'] = $data;
-    }
-    return $line;
+function agumail_cart_line( array $item ) {
+	$qty        = agumail_quantity( isset( $item['quantity'] ) ? $item['quantity'] : 0 );
+	$line_total = isset( $item['line_total'] ) ? agumail_money( $item['line_total'] ) : 0.0;
+	if ( $line_total <= 0 && isset( $item['data'] ) && is_object( $item['data'] ) ) {
+		$line_total = agumail_money( (float) $item['data']->get_price() * $qty );
+	}
+	$line = array(
+		'product_id'   => isset( $item['product_id'] ) ? (int) $item['product_id'] : 0,
+		'variation_id' => isset( $item['variation_id'] ) ? (int) $item['variation_id'] : 0,
+		'variation'    => isset( $item['variation'] ) && is_array( $item['variation'] ) ? $item['variation'] : array(),
+		'qty'          => $qty,
+		'line_total'   => $line_total,
+	);
+	if ( agumail_cart_item_is_child( $item ) ) {
+		$line['child'] = true;
+		return $line;
+	}
+	$data = agumail_cart_item_data( $item );
+	if ( $data ) {
+		$line['item_data'] = $data;
+	}
+	return $line;
 }
 
-/** An item another line put in the cart: a bundled item (Product Bundles), a component (Composite Products), a Mix and Match child. */
-function agumail_cart_item_is_child(array $item) {
-    foreach (array('bundled_by', 'composite_parent', 'mnm_container') as $key) {
-        if (!empty($item[$key])) {
-            return true;
-        }
-    }
-    return false;
+/**
+ * An item another line put in the cart: a bundled item (Product Bundles), a
+ * component (Composite Products), a Mix and Match child.
+ *
+ * @param array $item A cart item.
+ */
+function agumail_cart_item_is_child( array $item ) {
+	foreach ( array( 'bundled_by', 'composite_parent', 'mnm_container' ) as $key ) {
+		if ( ! empty( $item[ $key ] ) ) {
+			return true;
+		}
+	}
+	return false;
 }
 
 /**
@@ -309,74 +346,108 @@ function agumail_cart_item_is_child(array $item) {
  * configuration), so a restore can add the item as it was. Only plain values
  * that survive JSON are kept; WooCommerce's own keys and the keys tying lines
  * together are left out, because a parent adds its children again itself.
+ *
+ * @param array $item A cart item.
  */
-function agumail_cart_item_data(array $item) {
-    $skipped = array_flip(array(
-        'key', 'product_id', 'variation_id', 'variation', 'quantity', 'data', 'data_hash', 'line_tax_data',
-        'line_subtotal', 'line_subtotal_tax', 'line_total', 'line_tax',
-        'bundled_by', 'bundled_items', 'composite_parent', 'composite_children', 'mnm_container', 'mnm_contents',
-    ));
-    $data = array();
-    foreach ($item as $key => $value) {
-        if (!is_string($key) || isset($skipped[$key]) || !agumail_cart_plain_value($value)) {
-            continue;
-        }
-        $data[$key] = $value;
-    }
-    if (!$data) {
-        return array();
-    }
-    $json = wp_json_encode($data);
-    return $json !== false && strlen($json) <= AGUMAIL_CART_ITEM_DATA_MAX ? $data : array();
+function agumail_cart_item_data( array $item ) {
+	$skipped = array_flip(
+		array(
+			'key',
+			'product_id',
+			'variation_id',
+			'variation',
+			'quantity',
+			'data',
+			'data_hash',
+			'line_tax_data',
+			'line_subtotal',
+			'line_subtotal_tax',
+			'line_total',
+			'line_tax',
+			'bundled_by',
+			'bundled_items',
+			'composite_parent',
+			'composite_children',
+			'mnm_container',
+			'mnm_contents',
+		)
+	);
+	$data    = array();
+	foreach ( $item as $key => $value ) {
+		if ( ! is_string( $key ) || isset( $skipped[ $key ] ) || ! agumail_cart_plain_value( $value ) ) {
+			continue;
+		}
+		$data[ $key ] = $value;
+	}
+	if ( ! $data ) {
+		return array();
+	}
+	$json = wp_json_encode( $data );
+	return false !== $json && strlen( $json ) <= AGUMAIL_CART_ITEM_DATA_MAX ? $data : array();
 }
 
-/** A string, number, boolean or null, or a list or map of them. */
-function agumail_cart_plain_value($value) {
-    if (is_array($value)) {
-        foreach ($value as $inner) {
-            if (!agumail_cart_plain_value($inner)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    if (is_float($value)) {
-        return is_finite($value);
-    }
-    return $value === null || is_scalar($value);
+/**
+ * A string, number, boolean or null, or a list or map of them.
+ *
+ * @param mixed $value The value to check.
+ */
+function agumail_cart_plain_value( $value ) {
+	if ( is_array( $value ) ) {
+		foreach ( $value as $inner ) {
+			if ( ! agumail_cart_plain_value( $inner ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+	if ( is_float( $value ) ) {
+		return is_finite( $value );
+	}
+	return null === $value || is_scalar( $value );
 }
 
 /** The shopper emptied their cart: its row is marked emptied (one write) and its id retired, so the next cart is a new one. */
 function agumail_cart_retire_emptied() {
-    $session = WC()->session;
-    $id = (string) $session->get(AGUMAIL_SESSION_CART_ID, '');
-    if ($id === '') {
-        return false;
-    }
-    $session->set(AGUMAIL_SESSION_CART_ID, null);
-    return agumail_cart_mark_emptied($id);
+	$session = WC()->session;
+	$id      = (string) $session->get( AGUMAIL_SESSION_CART_ID, '' );
+	if ( '' === $id ) {
+		return false;
+	}
+	$session->set( AGUMAIL_SESSION_CART_ID, null );
+	return agumail_cart_mark_emptied( $id );
 }
 
-function agumail_cart_mark_emptied($id) {
-    $row = agumail_cart_get($id);
-    if (!$row || $row['status'] !== 'open') {
-        return false;
-    }
-    // The lines stay, so a recovery email already sent for this cart can still restore it.
-    return agumail_cart_update($id, array('status' => 'emptied'));
+/**
+ * Marks an open cart row emptied. Returns whether it wrote.
+ *
+ * @param string $id The cart id.
+ */
+function agumail_cart_mark_emptied( $id ) {
+	$row = agumail_cart_get( $id );
+	if ( ! $row || 'open' !== $row['status'] ) {
+		return false;
+	}
+	// The lines stay, so a recovery email already sent for this cart can still restore it.
+	return agumail_cart_update( $id, array( 'status' => 'emptied' ) );
 }
 
-/** The cart was bought: its row is ordered (one write), and goes to AguMail as completed. */
-function agumail_cart_mark_ordered($id, $order_id) {
-    $row = agumail_cart_get($id);
-    if (!$row || $row['status'] === 'ordered') {
-        return false;
-    }
-    $fields = array('status' => 'ordered');
-    if ($order_id > 0) {
-        $fields['order_id'] = (int) $order_id;
-    }
-    return agumail_cart_update($id, $fields);
+/**
+ * The cart was bought: its row is ordered (one write), and goes to AguMail as
+ * completed.
+ *
+ * @param string $id       The cart id.
+ * @param int    $order_id The order's id, or 0 when it is not known.
+ */
+function agumail_cart_mark_ordered( $id, $order_id ) {
+	$row = agumail_cart_get( $id );
+	if ( ! $row || 'ordered' === $row['status'] ) {
+		return false;
+	}
+	$fields = array( 'status' => 'ordered' );
+	if ( $order_id > 0 ) {
+		$fields['order_id'] = (int) $order_id;
+	}
+	return agumail_cart_update( $id, $fields );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -386,57 +457,69 @@ function agumail_cart_mark_ordered($id, $order_id) {
 // once, not five times.
 // ─────────────────────────────────────────────────────────────────────────────
 
-foreach (array(
-    'woocommerce_add_to_cart', 'woocommerce_cart_item_removed', 'woocommerce_cart_item_restored',
-    'woocommerce_after_cart_item_quantity_update', 'woocommerce_cart_item_set_quantity',
-    'woocommerce_applied_coupon', 'woocommerce_removed_coupon',
-) as $agumail_hook) {
-    add_action($agumail_hook, 'agumail_cart_changed', 20, 0);
+foreach ( array(
+	'woocommerce_add_to_cart',
+	'woocommerce_cart_item_removed',
+	'woocommerce_cart_item_restored',
+	'woocommerce_after_cart_item_quantity_update',
+	'woocommerce_cart_item_set_quantity',
+	'woocommerce_applied_coupon',
+	'woocommerce_removed_coupon',
+) as $agumail_hook ) {
+	add_action( $agumail_hook, 'agumail_cart_changed', 20, 0 );
 }
-unset($agumail_hook);
+unset( $agumail_hook );
 
+/** Notes that the cart changed, unless the plugin is rebuilding it itself. */
 function agumail_cart_changed() {
-    $state = &agumail_cart_request_state();
-    if (!$state['restoring']) {
-        $state['changed'] = true;
-    }
+	$state = &agumail_cart_request_state();
+	if ( ! $state['restoring'] ) {
+		$state['changed'] = true;
+	}
 }
 
 // A signed-in customer's saved cart joins the session on the first page after
 // they log in, or in a session that had no cart yet. WooCommerce reads the
 // flag, merges, then clears the flag, so it is read before the merge.
-add_action('woocommerce_load_cart_from_session', 'agumail_cart_before_session_load', 10, 0);
-add_action('woocommerce_cart_loaded_from_session', 'agumail_cart_after_session_load', 10, 0);
+add_action( 'woocommerce_load_cart_from_session', 'agumail_cart_before_session_load', 10, 0 );
+add_action( 'woocommerce_cart_loaded_from_session', 'agumail_cart_after_session_load', 10, 0 );
 
+/** Notes whether WooCommerce is about to merge a saved cart into the session. */
 function agumail_cart_before_session_load() {
-    if (!is_user_logged_in() || !function_exists('WC') || empty(WC()->session)) {
-        return;
-    }
-    $state = &agumail_cart_request_state();
-    $state['merging'] = WC()->session->get('cart', null) === null
-        || (bool) get_user_meta(get_current_user_id(), '_woocommerce_load_saved_cart_after_login', true);
+	$session = agumail_wc_session();
+	if ( ! is_user_logged_in() || ! $session ) {
+		return;
+	}
+	$state            = &agumail_cart_request_state();
+	$state['merging'] = null === $session->get( 'cart', null )
+		|| (bool) get_user_meta( get_current_user_id(), '_woocommerce_load_saved_cart_after_login', true );
 }
 
+/** A saved cart merged into the session counts as a change to the cart. */
 function agumail_cart_after_session_load() {
-    $state = &agumail_cart_request_state();
-    if ($state['merging']) {
-        $state['merging'] = false;
-        agumail_cart_changed();
-    }
+	$state = &agumail_cart_request_state();
+	if ( $state['merging'] ) {
+		$state['merging'] = false;
+		agumail_cart_changed();
+	}
 }
 
-add_action('woocommerce_checkout_order_processed', 'agumail_cart_order_placed', 1, 1);
-add_action('woocommerce_store_api_checkout_order_processed', 'agumail_cart_order_placed', 1, 1);
+add_action( 'woocommerce_checkout_order_processed', 'agumail_cart_order_placed', 1, 1 );
+add_action( 'woocommerce_store_api_checkout_order_processed', 'agumail_cart_order_placed', 1, 1 );
 
-/** The classic checkout passes the order id, the Store API the order. */
-function agumail_cart_order_placed($order) {
-    $state = &agumail_cart_request_state();
-    $state['ordered'] = true;
-    $state['order_id'] = is_object($order) && method_exists($order, 'get_id') ? (int) $order->get_id() : absint($order);
+/**
+ * The classic checkout passes the order id, the Store API the order.
+ *
+ * @param int|object $order The order placed (a WC_Order), or its id.
+ */
+function agumail_cart_order_placed( $order ) {
+	$state             = &agumail_cart_request_state();
+	$state['ordered']  = true;
+	$state['order_id'] = is_object( $order ) && method_exists( $order, 'get_id' ) ? (int) $order->get_id() : absint( $order );
 }
 
 // Before WooCommerce's own handler (priority 10) clears order_awaiting_payment from the session.
-add_action('woocommerce_cart_emptied', 'agumail_cart_emptied', 5, 0);
+add_action( 'woocommerce_cart_emptied', 'agumail_cart_emptied', 5, 0 );
 
 /**
  * The cart was emptied. When the shopper did it, the row is marked emptied at
@@ -448,38 +531,40 @@ add_action('woocommerce_cart_emptied', 'agumail_cart_emptied', 5, 0);
  * in the request's one write, and AguMail hears it was bought.
  */
 function agumail_cart_emptied() {
-    $state = &agumail_cart_request_state();
-    if ($state['restoring'] || !agumail_carts_active()) {
-        return;
-    }
-    $order = agumail_cart_emptying_order();
-    if ($order === false) {
-        $state['changed'] = true;
-        return;
-    }
-    $state['checkout_emptied'] = true;
-    $state['changed'] = false;
-    $session = WC()->session;
-    $id = (string) $session->get(AGUMAIL_SESSION_CART_ID, '');
-    $session->set(AGUMAIL_SESSION_CART_ID, null);
-    if ($id !== '') {
-        $session->set(AGUMAIL_SESSION_RETIRED, $id);
-    }
-    if ($id !== '' && (!is_object($order) || !agumail_cart_order_counts_as_paid($order))) {
-        agumail_cart_mark_ordered($id, is_object($order) ? $order->get_id() : 0);
-    }
+	$state = &agumail_cart_request_state();
+	if ( $state['restoring'] || ! agumail_carts_active() ) {
+		return;
+	}
+	$order = agumail_cart_emptying_order();
+	if ( false === $order ) {
+		$state['changed'] = true;
+		return;
+	}
+	$state['checkout_emptied'] = true;
+	$state['changed']          = false;
+	$session                   = WC()->session;
+	$id                        = (string) $session->get( AGUMAIL_SESSION_CART_ID, '' );
+	$session->set( AGUMAIL_SESSION_CART_ID, null );
+	if ( '' !== $id ) {
+		$session->set( AGUMAIL_SESSION_RETIRED, $id );
+	}
+	if ( '' !== $id && ( ! is_object( $order ) || ! agumail_cart_order_counts_as_paid( $order ) ) ) {
+		agumail_cart_mark_ordered( $id, is_object( $order ) ? $order->get_id() : 0 );
+	}
 }
 
 /**
  * Whether the orders feature sends this order, and so closes its cart itself:
  * its own rule when it has one (a paid date, or a paid status such as cash on
  * delivery in processing), else a paid date.
+ *
+ * @param WC_Order $order The order that emptied the cart.
  */
-function agumail_cart_order_counts_as_paid($order) {
-    if (function_exists('agumail_order_counts_as_paid')) {
-        return (bool) agumail_order_counts_as_paid($order);
-    }
-    return (bool) $order->get_date_paid();
+function agumail_cart_order_counts_as_paid( $order ) {
+	if ( function_exists( 'agumail_order_counts_as_paid' ) ) {
+		return (bool) agumail_order_counts_as_paid( $order );
+	}
+	return (bool) $order->get_date_paid();
 }
 
 /**
@@ -492,47 +577,52 @@ function agumail_cart_order_counts_as_paid($order) {
  * through, which is WooCommerce's own test before it empties the cart.
  */
 function agumail_cart_emptying_order() {
-    $state = agumail_cart_request_state();
-    if ($state['ordered']) {
-        return agumail_cart_order_or_true($state['order_id']);
-    }
-    if (function_exists('is_order_received_page') && is_order_received_page()) {
-        global $wp;
-        $id = is_object($wp) && isset($wp->query_vars['order-received']) ? absint($wp->query_vars['order-received']) : 0;
-        return agumail_cart_order_or_true($id);
-    }
-    $awaiting = (int) WC()->session->get('order_awaiting_payment', 0);
-    if ($awaiting > 0 && function_exists('wc_get_order')) {
-        $order = wc_get_order($awaiting);
-        if ($order && !$order->has_status(array('failed', 'pending', 'cancelled'))) {
-            return $order;
-        }
-    }
-    return false;
+	$state = agumail_cart_request_state();
+	if ( $state['ordered'] ) {
+		return agumail_cart_order_or_true( $state['order_id'] );
+	}
+	if ( function_exists( 'is_order_received_page' ) && is_order_received_page() ) {
+		global $wp;
+		$id = is_object( $wp ) && isset( $wp->query_vars['order-received'] ) ? absint( $wp->query_vars['order-received'] ) : 0;
+		return agumail_cart_order_or_true( $id );
+	}
+	$awaiting = (int) WC()->session->get( 'order_awaiting_payment', 0 );
+	if ( $awaiting > 0 && function_exists( 'wc_get_order' ) ) {
+		$order = wc_get_order( $awaiting );
+		if ( $order && ! $order->has_status( array( 'failed', 'pending', 'cancelled' ) ) ) {
+			return $order;
+		}
+	}
+	return false;
 }
 
-function agumail_cart_order_or_true($order_id) {
-    $order = $order_id > 0 && function_exists('wc_get_order') ? wc_get_order($order_id) : false;
-    return $order ? $order : true;
+/**
+ * The order with this id, or true when it cannot be found.
+ *
+ * @param int $order_id The order's id, or 0.
+ */
+function agumail_cart_order_or_true( $order_id ) {
+	$order = $order_id > 0 && function_exists( 'wc_get_order' ) ? wc_get_order( $order_id ) : false;
+	return $order ? $order : true;
 }
 
 // WordPress fires shutdown even after exit, so this runs after a redirect or a
 // JSON answer too; it comes before WooCommerce saves the session (priority 20),
 // so a new cart id is kept.
-add_action('shutdown', 'agumail_cart_flush', 5, 0);
+add_action( 'shutdown', 'agumail_cart_flush', 5, 0 );
 
 /** Writes the request's cart changes, once. */
 function agumail_cart_flush() {
-    $state = agumail_cart_request_state();
-    agumail_cart_reset_request_state();
-    if (!$state['changed'] || $state['checkout_emptied'] || !agumail_carts_active() || !agumail_cart_session_started()) {
-        return;
-    }
-    if (WC()->cart->is_empty()) {
-        agumail_cart_retire_emptied();
-        return;
-    }
-    agumail_cart_save_current();
+	$state = agumail_cart_request_state();
+	agumail_cart_reset_request_state();
+	if ( ! $state['changed'] || $state['checkout_emptied'] || ! agumail_carts_active() || ! agumail_cart_session_started() ) {
+		return;
+	}
+	if ( WC()->cart->is_empty() ) {
+		agumail_cart_retire_emptied();
+		return;
+	}
+	agumail_cart_save_current();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -542,31 +632,31 @@ function agumail_cart_flush() {
 // ({sig, email}) when it kept the email and website tracking is on.
 // ─────────────────────────────────────────────────────────────────────────────
 
-add_action('wc_ajax_' . AGUMAIL_CAPTURE_ACTION, 'agumail_capture_request');
+add_action( 'wc_ajax_' . AGUMAIL_CAPTURE_ACTION, 'agumail_capture_request' );
 
+/** Answers the capture call: keeps the email and, while website tracking is on, hands back the identify signature. */
 function agumail_capture_request() {
-    // phpcs:disable WordPress.Security.NonceVerification.Missing -- see above; the call only records the shopper's own email.
-    $email = isset($_POST['email']) && is_string($_POST['email']) ? agumail_normalize_email(sanitize_email(wp_unslash($_POST['email']))) : '';
-    // phpcs:enable
-    $answer = array('ok' => true);
-    if ($email !== '' && agumail_capture_email($email)) {
-        // The email changed, so the cart row now names the new one. This is the call's one write.
-        if (!WC()->cart->is_empty()) {
-            agumail_cart_save_current();
-        }
-        $state = &agumail_cart_request_state();
-        $state['changed'] = false;
-    }
-    // The signature is only for the site script, so none is handed out while website tracking is off.
-    if ($email !== '' && agumail_tracking_on() && agumail_capture_accepted($email)) {
-        $sig = function_exists('agumail_identify_signature') ? (string) agumail_identify_signature($email) : '';
-        if ($sig !== '') {
-            // The address exactly as signed, which sanitising may have changed from what was typed.
-            $answer['sig'] = $sig;
-            $answer['email'] = $email;
-        }
-    }
-    wp_send_json($answer);
+	// No nonce, see above: the call only records the shopper's own email.
+	$email  = agumail_normalize_email( agumail_posted( 'email', 'email' ) );
+	$answer = array( 'ok' => true );
+	if ( '' !== $email && agumail_capture_email( $email ) ) {
+		// The email changed, so the cart row now names the new one. This is the call's one write.
+		if ( ! WC()->cart->is_empty() ) {
+			agumail_cart_save_current();
+		}
+		$state            = &agumail_cart_request_state();
+		$state['changed'] = false;
+	}
+	// The signature is only for the site script, so none is handed out while website tracking is off.
+	if ( '' !== $email && agumail_tracking_on() && agumail_capture_accepted( $email ) ) {
+		$sig = function_exists( 'agumail_identify_signature' ) ? (string) agumail_identify_signature( $email ) : '';
+		if ( '' !== $sig ) {
+			// The address exactly as signed, which sanitising may have changed from what was typed.
+			$answer['sig']   = $sig;
+			$answer['email'] = $email;
+		}
+	}
+	wp_send_json( $answer );
 }
 
 /**
@@ -575,27 +665,29 @@ function agumail_capture_request() {
  * carts are off, the browser has no session yet (none is started: that would
  * stop page caching for this visitor), the session already changed its email
  * AGUMAIL_CAPTURE_LIMIT times, or its address has sent too many new ones.
+ *
+ * @param string $email A normalized email address.
  */
-function agumail_capture_email($email) {
-    if (!agumail_carts_active() || !agumail_cart_session_started()) {
-        return false;
-    }
-    $session = WC()->session;
-    if ($email === agumail_normalize_email($session->get(AGUMAIL_SESSION_EMAIL, ''))) {
-        return false;
-    }
-    $count = (int) $session->get(AGUMAIL_SESSION_CAPTURES, 0);
-    if ($count >= AGUMAIL_CAPTURE_LIMIT || !agumail_capture_address_allows()) {
-        return false;
-    }
-    $session->set(AGUMAIL_SESSION_CAPTURES, $count + 1);
-    $session->set(AGUMAIL_SESSION_EMAIL, $email);
-    // Typed while signed in, and not the account's own address: the customer's
-    // choice for this checkout. Anything else yields to the account email.
-    $user_id = get_current_user_id();
-    $own_choice = $user_id && $email !== agumail_normalize_email(wp_get_current_user()->user_email);
-    $session->set(AGUMAIL_SESSION_EMAIL_BY, $own_choice ? $user_id : 0);
-    return true;
+function agumail_capture_email( $email ) {
+	if ( ! agumail_carts_active() || ! agumail_cart_session_started() ) {
+		return false;
+	}
+	$session = WC()->session;
+	if ( agumail_normalize_email( $session->get( AGUMAIL_SESSION_EMAIL, '' ) ) === $email ) {
+		return false;
+	}
+	$count = (int) $session->get( AGUMAIL_SESSION_CAPTURES, 0 );
+	if ( $count >= AGUMAIL_CAPTURE_LIMIT || ! agumail_capture_address_allows() ) {
+		return false;
+	}
+	$session->set( AGUMAIL_SESSION_CAPTURES, $count + 1 );
+	$session->set( AGUMAIL_SESSION_EMAIL, $email );
+	// Typed while signed in, and not the account's own address: the customer's
+	// choice for this checkout. Anything else yields to the account email.
+	$user_id    = get_current_user_id();
+	$own_choice = $user_id && agumail_normalize_email( wp_get_current_user()->user_email ) !== $email;
+	$session->set( AGUMAIL_SESSION_EMAIL_BY, $own_choice ? $user_id : 0 );
+	return true;
 }
 
 /**
@@ -607,98 +699,120 @@ function agumail_capture_email($email) {
  * one indexed count on the carts table.
  */
 function agumail_capture_address_allows() {
-    $address = agumail_capture_address();
-    if ($address === '') {
-        return true;
-    }
-    if (wp_using_ext_object_cache()) {
-        $key = 'capture_' . md5($address) . '_' . (int) floor(agumail_time() / HOUR_IN_SECONDS);
-        wp_cache_add($key, 0, 'agumail', HOUR_IN_SECONDS);
-        $count = wp_cache_incr($key, 1, 'agumail');
-        if ($count !== false && $count > AGUMAIL_CAPTURE_ADDRESS_LIMIT) {
-            return false;
-        }
-    }
-    return agumail_carts_count_by_ip(agumail_capture_address_hash(), agumail_time() - HOUR_IN_SECONDS) < AGUMAIL_CAPTURE_ADDRESS_CARTS;
+	$address = agumail_capture_address();
+	if ( '' === $address ) {
+		return true;
+	}
+	if ( wp_using_ext_object_cache() ) {
+		$key = 'capture_' . md5( $address ) . '_' . (int) floor( agumail_time() / HOUR_IN_SECONDS );
+		wp_cache_add( $key, 0, 'agumail', HOUR_IN_SECONDS );
+		$count = wp_cache_incr( $key, 1, 'agumail' );
+		if ( false !== $count && $count > AGUMAIL_CAPTURE_ADDRESS_LIMIT ) {
+			return false;
+		}
+	}
+	return agumail_carts_count_by_ip( agumail_capture_address_hash(), agumail_time() - HOUR_IN_SECONDS ) < AGUMAIL_CAPTURE_ADDRESS_CARTS;
 }
 
 /** The shopper's IP address, as WooCommerce reads it, or ''. */
 function agumail_capture_address() {
-    if (class_exists('WC_Geolocation') && method_exists('WC_Geolocation', 'get_ip_address')) {
-        return (string) WC_Geolocation::get_ip_address();
-    }
-    return isset($_SERVER['REMOTE_ADDR']) && is_string($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '';
+	if ( class_exists( 'WC_Geolocation' ) ) {
+		return (string) WC_Geolocation::get_ip_address();
+	}
+	return isset( $_SERVER['REMOTE_ADDR'] ) && is_string( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
 }
 
 /** A keyed hash of the shopper's address, so the carts table never holds the address itself. '' without one. */
 function agumail_capture_address_hash() {
-    $address = agumail_capture_address();
-    return $address === '' ? '' : hash_hmac('sha256', $address, wp_salt());
+	$address = agumail_capture_address();
+	return '' === $address ? '' : hash_hmac( 'sha256', $address, wp_salt() );
 }
 
-/** Whether $email is the session's shopper now, which is when the page may identify them. */
-function agumail_capture_accepted($email) {
-    return agumail_carts_active()
-        && agumail_cart_session_started()
-        && $email === agumail_normalize_email(WC()->session->get(AGUMAIL_SESSION_EMAIL, ''));
+/**
+ * Whether $email is the session's shopper now, which is when the page may
+ * identify them.
+ *
+ * @param string $email A normalized email address.
+ */
+function agumail_capture_accepted( $email ) {
+	return agumail_carts_active()
+		&& agumail_cart_session_started()
+		&& agumail_normalize_email( WC()->session->get( AGUMAIL_SESSION_EMAIL, '' ) ) === $email;
 }
 
 // The checkout's own updates carry the email too, for a browser where the
 // script never ran: the classic checkout posts its whole form each time it
 // refreshes the order review, and the block checkout saves the customer
 // through the Store API. Only the email is read.
-add_action('woocommerce_checkout_update_order_review', 'agumail_capture_from_order_review', 10, 1);
-add_action('woocommerce_store_api_cart_update_customer_from_request', 'agumail_capture_from_customer', 10, 1);
+add_action( 'woocommerce_checkout_update_order_review', 'agumail_capture_from_order_review', 10, 1 );
+add_action( 'woocommerce_store_api_cart_update_customer_from_request', 'agumail_capture_from_customer', 10, 1 );
 
-function agumail_capture_from_order_review($posted) {
-    parse_str(is_string($posted) ? $posted : '', $fields);
-    $email = isset($fields['billing_email']) && is_string($fields['billing_email']) ? agumail_normalize_email(sanitize_email($fields['billing_email'])) : '';
-    agumail_capture_later($email);
+/**
+ * Reads the email from the classic checkout's order review refresh.
+ *
+ * @param mixed $posted The checkout form, URL-encoded. Anything but a string is read as an empty form.
+ */
+function agumail_capture_from_order_review( $posted ) {
+	parse_str( is_string( $posted ) ? $posted : '', $fields );
+	$email = isset( $fields['billing_email'] ) && is_string( $fields['billing_email'] ) ? agumail_normalize_email( sanitize_email( $fields['billing_email'] ) ) : '';
+	agumail_capture_later( $email );
 }
 
-function agumail_capture_from_customer($customer) {
-    $email = is_object($customer) && method_exists($customer, 'get_billing_email') ? agumail_normalize_email($customer->get_billing_email()) : '';
-    agumail_capture_later($email);
+/**
+ * Reads the email from the customer the block checkout saved.
+ *
+ * @param mixed $customer The customer the Store API updated, a WC_Customer. Anything without a billing email gives no email.
+ */
+function agumail_capture_from_customer( $customer ) {
+	$email = is_object( $customer ) && method_exists( $customer, 'get_billing_email' ) ? agumail_normalize_email( $customer->get_billing_email() ) : '';
+	agumail_capture_later( $email );
 }
 
-/** A changed email rewrites the cart row with the request's other changes, at shutdown. */
-function agumail_capture_later($email) {
-    if ($email !== '' && agumail_capture_email($email)) {
-        agumail_cart_changed();
-    }
+/**
+ * A changed email rewrites the cart row with the request's other changes, at
+ * shutdown.
+ *
+ * @param string $email A normalized email address, or ''.
+ */
+function agumail_capture_later( $email ) {
+	if ( '' !== $email && agumail_capture_email( $email ) ) {
+		agumail_cart_changed();
+	}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The capture script: deferred, on the pages where a shopper types their email.
 // ─────────────────────────────────────────────────────────────────────────────
 
-add_action('wp_enqueue_scripts', 'agumail_enqueue_capture_script');
+add_action( 'wp_enqueue_scripts', 'agumail_enqueue_capture_script', 10, 0 );
 
+/** Loads the capture script on the pages where a shopper types their email. */
 function agumail_enqueue_capture_script() {
-    if (!agumail_carts_active() || !agumail_capture_page()) {
-        return;
-    }
-    wp_enqueue_script('agumail-capture', plugins_url('assets/js/capture.js', AGUMAIL_FILE), array(), AGUMAIL_VERSION, true);
-    wp_script_add_data('agumail-capture', 'strategy', 'defer');
-    wp_add_inline_script('agumail-capture', 'window.agumailCapture = ' . wp_json_encode(array('endpoint' => agumail_capture_url())) . ';', 'before');
+	if ( ! agumail_carts_active() || ! agumail_capture_page() ) {
+		return;
+	}
+	wp_enqueue_script( 'agumail-capture', plugins_url( 'assets/js/capture.js', AGUMAIL_FILE ), array(), AGUMAIL_VERSION, true );
+	wp_script_add_data( 'agumail-capture', 'strategy', 'defer' );
+	wp_add_inline_script( 'agumail-capture', 'window.agumailCapture = ' . wp_json_encode( array( 'endpoint' => agumail_capture_url() ) ) . ';', 'before' );
 }
 
 /** Checkout and cart, and My Account while signed out, where the login and register forms are. Not the thank-you page. */
 function agumail_capture_page() {
-    if (function_exists('is_order_received_page') && is_order_received_page()) {
-        return false;
-    }
-    if ((function_exists('is_checkout') && is_checkout()) || (function_exists('is_cart') && is_cart())) {
-        return true;
-    }
-    return function_exists('is_account_page') && is_account_page() && !is_user_logged_in();
+	if ( function_exists( 'is_order_received_page' ) && is_order_received_page() ) {
+		return false;
+	}
+	if ( ( function_exists( 'is_checkout' ) && is_checkout() ) || ( function_exists( 'is_cart' ) && is_cart() ) ) {
+		return true;
+	}
+	return function_exists( 'is_account_page' ) && is_account_page() && ! is_user_logged_in();
 }
 
+/** The address the capture script posts to. */
 function agumail_capture_url() {
-    if (class_exists('WC_AJAX') && method_exists('WC_AJAX', 'get_endpoint')) {
-        return WC_AJAX::get_endpoint(AGUMAIL_CAPTURE_ACTION);
-    }
-    return add_query_arg('wc-ajax', AGUMAIL_CAPTURE_ACTION, home_url('/'));
+	if ( class_exists( 'WC_AJAX' ) ) {
+		return WC_AJAX::get_endpoint( AGUMAIL_CAPTURE_ACTION );
+	}
+	return add_query_arg( 'wc-ajax', AGUMAIL_CAPTURE_ACTION, home_url( '/' ) );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -706,15 +820,19 @@ function agumail_capture_url() {
 // It points at the checkout page, which no page cache serves.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The link a recovery email's button goes to. */
-function agumail_cart_restore_url(array $cart) {
-    $checkout = function_exists('wc_get_checkout_url') ? wc_get_checkout_url() : home_url('/');
-    return $checkout . (strpos($checkout, '?') === false ? '?' : '&')
-        . 'agumail_cart=' . rawurlencode($cart['id']) . '&agumail_token=' . rawurlencode((string) $cart['token']);
+/**
+ * The link a recovery email's button goes to.
+ *
+ * @param array $cart The cart row.
+ */
+function agumail_cart_restore_url( array $cart ) {
+	$checkout = function_exists( 'wc_get_checkout_url' ) ? wc_get_checkout_url() : home_url( '/' );
+	return $checkout . ( false === strpos( $checkout, '?' ) ? '?' : '&' )
+		. 'agumail_cart=' . rawurlencode( $cart['id'] ) . '&agumail_token=' . rawurlencode( (string) $cart['token'] );
 }
 
 // After WooCommerce has loaded the cart from the session (wp_loaded, priority 10).
-add_action('wp_loaded', 'agumail_cart_maybe_restore', 30);
+add_action( 'wp_loaded', 'agumail_cart_maybe_restore', 30, 0 );
 
 /**
  * Opens a restore link. With the right token the cart is rebuilt in this
@@ -727,48 +845,48 @@ add_action('wp_loaded', 'agumail_cart_maybe_restore', 30);
  * replaced, is marked emptied.
  */
 function agumail_cart_maybe_restore() {
-    // phpcs:disable WordPress.Security.NonceVerification.Recommended -- the token is the check.
-    if (!isset($_GET['agumail_cart']) || is_admin() || wp_doing_ajax() || wp_doing_cron() || agumail_cart_is_rest_request()) {
-        return;
-    }
-    $id = is_string($_GET['agumail_cart']) ? sanitize_text_field(wp_unslash($_GET['agumail_cart'])) : '';
-    $token = isset($_GET['agumail_token']) && is_string($_GET['agumail_token']) ? sanitize_text_field(wp_unslash($_GET['agumail_token'])) : '';
-    // phpcs:enable
-    $cart = $id !== '' && agumail_ready() ? agumail_cart_get($id) : null;
-    if (!agumail_cart_token_valid($cart, $token) || !function_exists('WC') || !WC()->cart || !WC()->session) {
-        agumail_cart_restore_redirect(agumail_cart_restore_same_page());
-    }
-    if ($cart['status'] === 'ordered') {
-        agumail_cart_restore_redirect(wc_get_cart_url());
-    }
-    $restorable = agumail_cart_restorable_lines($cart['lines']);
-    if (!$restorable) {
-        agumail_cart_restore_redirect(wc_get_cart_url());
-    }
+	// No nonce: the token is the check.
+	if ( ! agumail_queried_flag( 'agumail_cart' ) || is_admin() || wp_doing_ajax() || wp_doing_cron() || agumail_cart_is_rest_request() ) {
+		return;
+	}
+	$id      = agumail_queried( 'agumail_cart' );
+	$token   = agumail_queried( 'agumail_token' );
+	$cart    = '' !== $id && agumail_ready() ? agumail_cart_get( $id ) : null;
+	$session = agumail_wc_session();
+	if ( ! agumail_cart_token_valid( $cart, $token ) || ! agumail_wc_cart() || ! $session ) {
+		agumail_cart_restore_redirect( agumail_cart_restore_same_page() );
+	}
+	if ( 'ordered' === $cart['status'] ) {
+		agumail_cart_restore_redirect( wc_get_cart_url() );
+	}
+	$restorable = agumail_cart_restorable_lines( $cart['lines'] );
+	if ( ! $restorable ) {
+		agumail_cart_restore_redirect( wc_get_cart_url() );
+	}
 
-    $session = WC()->session;
-    if (!agumail_cart_session_started() && method_exists($session, 'set_customer_session_cookie')) {
-        $session->set_customer_session_cookie(true);
-    }
-    $previous = (string) $session->get(AGUMAIL_SESSION_CART_ID, '');
-    if (!agumail_cart_rebuild($cart['id'], $restorable)) {
-        agumail_cart_restore_redirect(wc_get_cart_url());
-    }
+	if ( ! agumail_cart_session_started() && method_exists( $session, 'set_customer_session_cookie' ) ) {
+		$session->set_customer_session_cookie( true );
+	}
+	$previous = (string) $session->get( AGUMAIL_SESSION_CART_ID, '' );
+	if ( ! agumail_cart_rebuild( $cart['id'], $restorable ) ) {
+		agumail_cart_restore_redirect( wc_get_cart_url() );
+	}
 
-    $session->set(AGUMAIL_SESSION_CART_ID, $cart['id']);
-    if (!empty($cart['email'])) {
-        // A guest continues under the address the link was sent to; a signed-in customer keeps their account email.
-        $session->set(AGUMAIL_SESSION_EMAIL, $cart['email']);
-        $session->set(AGUMAIL_SESSION_EMAIL_BY, 0);
-        if (WC()->customer && (!is_user_logged_in() || WC()->customer->get_billing_email() === '')) {
-            // WooCommerce saves the customer at shutdown.
-            WC()->customer->set_billing_email($cart['email']);
-        }
-    }
-    if ($previous !== '' && $previous !== $cart['id'] && agumail_carts_active()) {
-        agumail_cart_mark_emptied($previous);
-    }
-    agumail_cart_restore_redirect(wc_get_checkout_url());
+	$session->set( AGUMAIL_SESSION_CART_ID, $cart['id'] );
+	if ( ! empty( $cart['email'] ) ) {
+		// A guest continues under the address the link was sent to; a signed-in customer keeps their account email.
+		$session->set( AGUMAIL_SESSION_EMAIL, $cart['email'] );
+		$session->set( AGUMAIL_SESSION_EMAIL_BY, 0 );
+		$customer = agumail_wc_customer();
+		if ( $customer && ( ! is_user_logged_in() || '' === $customer->get_billing_email() ) ) {
+			// WooCommerce saves the customer at shutdown.
+			$customer->set_billing_email( $cart['email'] );
+		}
+	}
+	if ( '' !== $previous && $previous !== $cart['id'] && agumail_carts_active() ) {
+		agumail_cart_mark_emptied( $previous );
+	}
+	agumail_cart_restore_redirect( wc_get_checkout_url() );
 }
 
 /**
@@ -776,48 +894,50 @@ function agumail_cart_maybe_restore() {
  * REST_REQUEST only later, while parsing the request, so the URL is read.
  */
 function agumail_cart_is_rest_request() {
-    // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-    if (wp_is_json_request() || isset($_GET['rest_route'])) {
-        return true;
-    }
-    $uri = isset($_SERVER['REQUEST_URI']) && is_string($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '';
-    $prefix = trim(function_exists('rest_get_url_prefix') ? rest_get_url_prefix() : 'wp-json', '/');
-    return $uri !== '' && $prefix !== '' && strpos($uri, '/' . $prefix . '/') !== false;
+	if ( wp_is_json_request() || agumail_queried_flag( 'rest_route' ) ) {
+		return true;
+	}
+	$uri    = isset( $_SERVER['REQUEST_URI'] ) && is_string( $_SERVER['REQUEST_URI'] ) ? esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
+	$prefix = trim( function_exists( 'rest_get_url_prefix' ) ? rest_get_url_prefix() : 'wp-json', '/' );
+	return '' !== $uri && '' !== $prefix && false !== strpos( $uri, '/' . $prefix . '/' );
 }
 
 /**
  * Replaces the cart with $lines, with this plugin's own cart hooks quiet.
  * Returns how many lines went in. When none could, the shopper keeps the cart
  * and coupons they had.
+ *
+ * @param string $cart_id The cart's id, for the log.
+ * @param array  $lines   Lines from agumail_cart_restorable_lines().
  */
-function agumail_cart_rebuild($cart_id, array $lines) {
-    $cart = WC()->cart;
-    $kept = $cart->get_cart_contents();
-    $coupons = $cart->get_applied_coupons();
-    $state = &agumail_cart_request_state();
-    $state['restoring'] = true;
-    $added = 0;
-    try {
-        $cart->empty_cart();
-        foreach ($lines as $line) {
-            try {
-                if ($cart->add_to_cart($line['product_id'], $line['qty'], $line['variation_id'], $line['variation'], $line['item_data'])) {
-                    $added++;
-                }
-            } catch (Throwable $e) {
-                agumail_log('notice', sprintf('Restoring cart %s skipped product %d: %s', $cart_id, $line['product_id'], $e->getMessage()));
-            }
-        }
-        if (!$added) {
-            $cart->set_cart_contents($kept);
-            $cart->set_applied_coupons($coupons);
-            $cart->calculate_totals();
-        }
-    } finally {
-        $state['restoring'] = false;
-        $state['changed'] = false;
-    }
-    return $added;
+function agumail_cart_rebuild( $cart_id, array $lines ) {
+	$cart               = WC()->cart;
+	$kept               = $cart->get_cart_contents();
+	$coupons            = $cart->get_applied_coupons();
+	$state              = &agumail_cart_request_state();
+	$state['restoring'] = true;
+	$added              = 0;
+	try {
+		$cart->empty_cart();
+		foreach ( $lines as $line ) {
+			try {
+				if ( $cart->add_to_cart( $line['product_id'], $line['qty'], $line['variation_id'], $line['variation'], $line['item_data'] ) ) {
+					++$added;
+				}
+			} catch ( Throwable $e ) {
+				agumail_log( 'notice', sprintf( 'Restoring cart %s skipped product %d: %s', $cart_id, $line['product_id'], $e->getMessage() ) );
+			}
+		}
+		if ( ! $added ) {
+			$cart->set_cart_contents( $kept );
+			$cart->set_applied_coupons( $coupons );
+			$cart->calculate_totals();
+		}
+	} finally {
+		$state['restoring'] = false;
+		$state['changed']   = false;
+	}
+	return $added;
 }
 
 /**
@@ -825,73 +945,77 @@ function agumail_cart_rebuild($cart_id, array $lines) {
  * product exists, is published, purchasable and in stock; the quantity is held
  * to the product's purchase limit and to the stock left. An item another line
  * put in the cart (a bundled item) is left for that line to add again.
+ *
+ * @param array $lines The lines the cart row recorded.
  */
-function agumail_cart_restorable_lines(array $lines) {
-    $restorable = array();
-    foreach ($lines as $line) {
-        if (!is_array($line) || !empty($line['child'])) {
-            continue;
-        }
-        $product_id = isset($line['product_id']) ? (int) $line['product_id'] : 0;
-        $variation_id = isset($line['variation_id']) ? (int) $line['variation_id'] : 0;
-        $product = function_exists('wc_get_product') ? wc_get_product($variation_id ? $variation_id : $product_id) : null;
-        if (!$product || $product->get_status() !== 'publish' || !$product->is_purchasable() || !$product->is_in_stock()) {
-            continue;
-        }
-        $qty = max(1, agumail_quantity(isset($line['qty']) ? $line['qty'] : 1));
-        $max = (int) $product->get_max_purchase_quantity();
-        if ($max > 0) {
-            $qty = min($qty, $max);
-        }
-        if (!$product->has_enough_stock($qty)) {
-            $stock = (int) $product->get_stock_quantity();
-            if ($stock < 1 || !$product->has_enough_stock($stock)) {
-                continue;
-            }
-            $qty = min($qty, $stock);
-        }
-        $restorable[] = array(
-            'product_id'   => $product_id,
-            'variation_id' => $variation_id,
-            'variation'    => isset($line['variation']) && is_array($line['variation']) ? $line['variation'] : array(),
-            'qty'          => $qty,
-            'item_data'    => isset($line['item_data']) && is_array($line['item_data']) ? $line['item_data'] : array(),
-        );
-    }
-    return $restorable;
+function agumail_cart_restorable_lines( array $lines ) {
+	$restorable = array();
+	foreach ( $lines as $line ) {
+		if ( ! is_array( $line ) || ! empty( $line['child'] ) ) {
+			continue;
+		}
+		$product_id   = isset( $line['product_id'] ) ? (int) $line['product_id'] : 0;
+		$variation_id = isset( $line['variation_id'] ) ? (int) $line['variation_id'] : 0;
+		$product      = function_exists( 'wc_get_product' ) ? wc_get_product( $variation_id ? $variation_id : $product_id ) : null;
+		if ( ! $product || 'publish' !== $product->get_status() || ! $product->is_purchasable() || ! $product->is_in_stock() ) {
+			continue;
+		}
+		$qty = max( 1, agumail_quantity( isset( $line['qty'] ) ? $line['qty'] : 1 ) );
+		$max = (int) $product->get_max_purchase_quantity();
+		if ( $max > 0 ) {
+			$qty = min( $qty, $max );
+		}
+		if ( ! $product->has_enough_stock( $qty ) ) {
+			$stock = (int) $product->get_stock_quantity();
+			if ( $stock < 1 || ! $product->has_enough_stock( $stock ) ) {
+				continue;
+			}
+			$qty = min( $qty, $stock );
+		}
+		$restorable[] = array(
+			'product_id'   => $product_id,
+			'variation_id' => $variation_id,
+			'variation'    => isset( $line['variation'] ) && is_array( $line['variation'] ) ? $line['variation'] : array(),
+			'qty'          => $qty,
+			'item_data'    => isset( $line['item_data'] ) && is_array( $line['item_data'] ) ? $line['item_data'] : array(),
+		);
+	}
+	return $restorable;
 }
 
 /** The page the link was opened on, as a path. */
 function agumail_cart_restore_same_page() {
-    $uri = isset($_SERVER['REQUEST_URI']) && is_string($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '';
-    $parts = explode('?', $uri, 2);
-    $path = $parts[0];
-    return $path !== '' && $path[0] === '/' && strpos($path, '//') !== 0 ? $path : home_url('/');
+	$uri   = isset( $_SERVER['REQUEST_URI'] ) && is_string( $_SERVER['REQUEST_URI'] ) ? esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
+	$parts = explode( '?', $uri, 2 );
+	$path  = $parts[0];
+	return '' !== $path && '/' === $path[0] && 0 !== strpos( $path, '//' ) ? $path : home_url( '/' );
 }
 
 /**
  * A 302 to $url with the link's other params and without its own two, then
  * the end of the request. A URL on another host becomes the cart page, not
  * wp-admin, which is where wp_safe_redirect() would send a shopper.
+ *
+ * @param string $url Where the shopper goes.
  */
-function agumail_cart_restore_redirect($url) {
-    // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- a link's own params, passed on to the page it lands on.
-    $kept = is_array($_GET) ? map_deep(wp_unslash($_GET), 'sanitize_text_field') : array();
-    unset($kept['agumail_cart'], $kept['agumail_token']);
-    if ($kept) {
-        $url .= (strpos($url, '?') === false ? '?' : '&') . http_build_query($kept, '', '&', PHP_QUERY_RFC3986);
-    }
-    nocache_headers();
-    $cart_page = function () {
-        return wc_get_cart_url();
-    };
-    add_filter('wp_safe_redirect_fallback', $cart_page);
-    try {
-        wp_safe_redirect($url, 302);
-    } finally {
-        remove_filter('wp_safe_redirect_fallback', $cart_page);
-    }
-    exit;
+function agumail_cart_restore_redirect( $url ) {
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- a link's own params, passed on to the page it lands on.
+	$kept = map_deep( wp_unslash( $_GET ), 'sanitize_text_field' );
+	unset( $kept['agumail_cart'], $kept['agumail_token'] );
+	if ( $kept ) {
+		$url .= ( false === strpos( $url, '?' ) ? '?' : '&' ) . http_build_query( $kept, '', '&', PHP_QUERY_RFC3986 );
+	}
+	nocache_headers();
+	$cart_page = function () {
+		return wc_get_cart_url();
+	};
+	add_filter( 'wp_safe_redirect_fallback', $cart_page );
+	try {
+		wp_safe_redirect( $url, 302 );
+	} finally {
+		remove_filter( 'wp_safe_redirect_fallback', $cart_page );
+	}
+	exit;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -901,64 +1025,75 @@ function agumail_cart_restore_redirect($url) {
 // order's cart id.
 // ─────────────────────────────────────────────────────────────────────────────
 
-add_action('agumail_drain_move_carts', 'agumail_carts_move_dirty', 10, 0);
+add_action( 'agumail_drain_move_carts', 'agumail_carts_move_dirty', 10, 0 );
 
+/** Moves changed cart rows into the outbox for the drain. */
 function agumail_carts_move_dirty() {
-    return agumail_carts_move_dirty_to_outbox(AGUMAIL_MAX_BATCH);
+	return agumail_carts_move_dirty_to_outbox( AGUMAIL_MAX_BATCH );
 }
 
-agumail_register_builder('cart', array(
-    'endpoint'   => '/api/v1/carts',
-    'collection' => 'carts',
-    'build'      => 'agumail_build_cart',
-    'contacts'   => 'agumail_cart_contacts',
-    'phase'      => 25,
-    'batch'      => 100,
-    'store'      => true,
-));
+agumail_register_builder(
+	'cart',
+	array(
+		'endpoint'   => '/api/v1/carts',
+		'collection' => 'carts',
+		'build'      => 'agumail_build_cart',
+		'contacts'   => 'agumail_cart_contacts',
+		'phase'      => 25,
+		'batch'      => 100,
+		'store'      => true,
+	)
+);
 
 /**
  * The cart record: an open cart with its lines, an emptied one with none (so
  * AguMail drops a cart still open), an ordered one as completed. null drops a
  * row whose cart is gone or names nobody.
+ *
+ * @param string $key The cart id.
  */
-function agumail_build_cart($key, $row) {
-    $cart = agumail_cart_get($key);
-    if (!$cart || agumail_normalize_email($cart['email']) === '') {
-        return null;
-    }
-    $emptied = $cart['status'] === 'emptied';
-    $record = array(
-        'externalId' => agumail_clamp($cart['id'], AGUMAIL_MAX_CART_ID),
-        'email'      => agumail_normalize_email($cart['email']),
-        'total'      => $emptied ? 0.0 : agumail_money_total($cart['total']),
-        'items'      => $emptied ? array() : agumail_cart_items($cart['lines']),
-        'status'     => $cart['status'] === 'ordered' ? 'completed' : 'open',
-        'source'     => 'woocommerce',
-    );
-    $currency = agumail_currency($cart['currency']);
-    if ($currency) {
-        $record['currency'] = $currency;
-    }
-    $link = agumail_clamp_url(agumail_cart_restore_url($cart));
-    if ($link) {
-        $record['checkoutUrl'] = $link;
-    }
-    $last_activity = agumail_iso_date($cart['updated_at']);
-    if ($last_activity) {
-        $record['lastActivityAt'] = $last_activity;
-    }
-    return $record;
+function agumail_build_cart( $key ) {
+	$cart = agumail_cart_get( $key );
+	if ( ! $cart || '' === agumail_normalize_email( $cart['email'] ) ) {
+		return null;
+	}
+	$emptied  = 'emptied' === $cart['status'];
+	$record   = array(
+		'externalId' => agumail_clamp( $cart['id'], AGUMAIL_MAX_CART_ID ),
+		'email'      => agumail_normalize_email( $cart['email'] ),
+		'total'      => $emptied ? 0.0 : agumail_money_total( $cart['total'] ),
+		'items'      => $emptied ? array() : agumail_cart_items( $cart['lines'] ),
+		'status'     => 'ordered' === $cart['status'] ? 'completed' : 'open',
+		'source'     => 'woocommerce',
+	);
+	$currency = agumail_currency( $cart['currency'] );
+	if ( $currency ) {
+		$record['currency'] = $currency;
+	}
+	$link = agumail_clamp_url( agumail_cart_restore_url( $cart ) );
+	if ( $link ) {
+		$record['checkoutUrl'] = $link;
+	}
+	$last_activity = agumail_iso_date( $cart['updated_at'] );
+	if ( $last_activity ) {
+		$record['lastActivityAt'] = $last_activity;
+	}
+	return $record;
 }
 
-/** An open cart's shopper, sent first with no consent at all: a captured email says nothing about marketing. */
-function agumail_cart_contacts($key, $row) {
-    $cart = agumail_cart_get($key);
-    if (!$cart || $cart['status'] !== 'open') {
-        return array();
-    }
-    $contact = agumail_contact_payload($cart['email']);
-    return $contact ? array($contact) : array();
+/**
+ * An open cart's shopper, sent first with no consent at all: a captured email
+ * says nothing about marketing.
+ *
+ * @param string $key The cart id.
+ */
+function agumail_cart_contacts( $key ) {
+	$cart = agumail_cart_get( $key );
+	if ( ! $cart || 'open' !== $cart['status'] ) {
+		return array();
+	}
+	$contact = agumail_contact_payload( $cart['email'] );
+	return $contact ? array( $contact ) : array();
 }
 
 /**
@@ -966,46 +1101,48 @@ function agumail_cart_contacts($key, $row) {
  * from the product now (a product since deleted is left out); the price is
  * what the line cost in the cart, in the cart's currency, which a currency
  * switcher may have made different from the catalogue's.
+ *
+ * @param array $lines The lines the cart row recorded.
  */
-function agumail_cart_items(array $lines) {
-    $items = array();
-    foreach ($lines as $line) {
-        if (!is_array($line)) {
-            continue;
-        }
-        $product_id = isset($line['product_id']) ? (int) $line['product_id'] : 0;
-        $variation_id = isset($line['variation_id']) ? (int) $line['variation_id'] : 0;
-        $product = wc_get_product($variation_id ? $variation_id : $product_id);
-        if (!$product) {
-            continue;
-        }
-        $qty = agumail_quantity(isset($line['qty']) ? $line['qty'] : 1);
-        $parent_id = (int) $product->get_parent_id();
-        $item = array(
-            'title'             => agumail_catalogue_text($product->get_name(), AGUMAIL_MAX_TITLE),
-            'qty'               => $qty,
-            'price'             => isset($line['line_total']) && is_numeric($line['line_total']) && $qty > 0
-                ? agumail_money((float) $line['line_total'] / $qty)
-                : agumail_money($product->get_price()),
-            'productExternalId' => (string) ($parent_id ? $parent_id : $product->get_id()),
-        );
-        $url = agumail_clamp_url($product->get_permalink());
-        if ($url) {
-            $item['url'] = $url;
-        }
-        $image_id = $product->get_image_id();
-        $image = $image_id ? agumail_clamp_url(wp_get_attachment_image_url($image_id, 'woocommerce_thumbnail')) : null;
-        if ($image) {
-            $item['imageUrl'] = $image;
-        }
-        // The line's own product: a variation's sku, not its parent's.
-        $sku = agumail_clamp_sku($product->get_sku());
-        if ($sku !== null) {
-            $item['sku'] = $sku;
-        }
-        $items[] = $item;
-    }
-    return agumail_clamp_items($items);
+function agumail_cart_items( array $lines ) {
+	$items = array();
+	foreach ( $lines as $line ) {
+		if ( ! is_array( $line ) ) {
+			continue;
+		}
+		$product_id   = isset( $line['product_id'] ) ? (int) $line['product_id'] : 0;
+		$variation_id = isset( $line['variation_id'] ) ? (int) $line['variation_id'] : 0;
+		$product      = wc_get_product( $variation_id ? $variation_id : $product_id );
+		if ( ! $product ) {
+			continue;
+		}
+		$qty       = agumail_quantity( isset( $line['qty'] ) ? $line['qty'] : 1 );
+		$parent_id = (int) $product->get_parent_id();
+		$item      = array(
+			'title'             => agumail_catalogue_text( $product->get_name(), AGUMAIL_MAX_TITLE ),
+			'qty'               => $qty,
+			'price'             => isset( $line['line_total'] ) && is_numeric( $line['line_total'] ) && $qty > 0
+				? agumail_money( (float) $line['line_total'] / $qty )
+				: agumail_money( $product->get_price() ),
+			'productExternalId' => (string) ( $parent_id ? $parent_id : $product->get_id() ),
+		);
+		$url       = agumail_clamp_url( $product->get_permalink() );
+		if ( $url ) {
+			$item['url'] = $url;
+		}
+		$image_id = (int) $product->get_image_id();
+		$image    = $image_id ? agumail_clamp_url( wp_get_attachment_image_url( $image_id, 'woocommerce_thumbnail' ) ) : null;
+		if ( $image ) {
+			$item['imageUrl'] = $image;
+		}
+		// The line's own product: a variation's sku, not its parent's.
+		$sku = agumail_clamp_sku( $product->get_sku() );
+		if ( null !== $sku ) {
+			$item['sku'] = $sku;
+		}
+		$items[] = $item;
+	}
+	return agumail_clamp_items( $items );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1013,13 +1150,14 @@ function agumail_cart_items(array $lines) {
 // after 90. A restore link to a purged cart then just drops its params.
 // ─────────────────────────────────────────────────────────────────────────────
 
-add_action('agumail_housekeeping', 'agumail_carts_housekeeping', 10, 0);
+add_action( 'agumail_housekeeping', 'agumail_carts_housekeeping', 10, 0 );
 
+/** Purges finished and old cart rows, in a background request. */
 function agumail_carts_housekeeping() {
-    if (!agumail_ready() || !agumail_is_background_request()) {
-        return;
-    }
-    $now = agumail_time();
-    agumail_carts_purge(array('emptied', 'ordered'), $now - AGUMAIL_CARTS_FINISHED_KEPT);
-    agumail_carts_purge(array(), $now - AGUMAIL_CARTS_KEPT);
+	if ( ! agumail_ready() || ! agumail_is_background_request() ) {
+		return;
+	}
+	$now = agumail_time();
+	agumail_carts_purge( array( 'emptied', 'ordered' ), $now - AGUMAIL_CARTS_FINISHED_KEPT );
+	agumail_carts_purge( array(), $now - AGUMAIL_CARTS_KEPT );
 }

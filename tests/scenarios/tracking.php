@@ -61,6 +61,8 @@ function test_tracking_the_site_script_is_enqueued_with_its_key_and_endpoint() {
     expect_that(preg_match('/<script[^>]*\sasync[\s>=]/', $tag) === 1, 'the site script does not load async: ' . $tag);
     expect_same(1, preg_match_all('/\sasync(\s|=|>)/', $tag), 'async was added twice: ' . $tag);
     expect_that(strpos($tag, 'data-cfasync="false"') !== false, 'Rocket Loader may defer the site script: ' . $tag);
+    expect_that(strpos($tag, 'text/plain') === false && strpos($tag, 'data-agumail-consent') === false, 'without a consent plugin the site script is not live: ' . $tag);
+    expect_same(null, agm_script('agumail-site-consent'), 'a consent loader was added without a consent plugin');
 
     $other = "<script src=\"https://shop.test/theme.js\" id=\"theme-js\"></script>\n";
     expect_same($other, apply_filters('script_loader_tag', $other, 'theme', 'https://shop.test/theme.js'), 'another script tag was changed');

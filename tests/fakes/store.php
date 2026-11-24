@@ -267,6 +267,14 @@ class Agm_Fake_Store {
             return $row['ip_hash'] === $ip_hash && $row['created_at'] >= $since;
         }));
     }
+    public function cart_delete($id) {
+        if (!isset($this->carts[$id])) {
+            return false;
+        }
+        unset($this->carts[$id]);
+        agm_record_write('carts', 'delete', (string) $id);
+        return true;
+    }
     public function carts_purge(array $statuses, $before) {
         $count = 0;
         foreach ($this->carts as $id => $row) {

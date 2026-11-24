@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<ruleset name="AguMail">
+	<description>WordPress Coding Standards for the AguMail plugin.</description>
+
+	<file>agumail</file>
+	<exclude-pattern>agumail/vendor/*</exclude-pattern>
+
+	<arg name="extensions" value="php"/>
+	<arg value="sp"/>
+	<arg name="colors"/>
+
+	<rule ref="WordPress"/>
+	<rule ref="PHPCompatibilityWP"/>
+
+	<config name="testVersion" value="7.4-"/>
+	<config name="minimum_wp_version" value="6.5"/>
+
+	<rule ref="WordPress.WP.I18n">
+		<properties>
+			<property name="text_domain" type="array">
+				<element value="agumail"/>
+			</property>
+		</properties>
+	</rule>
+
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+		<properties>
+			<property name="prefixes" type="array">
+				<element value="agumail"/>
+			</property>
+		</properties>
+	</rule>
+</ruleset>
