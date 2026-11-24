@@ -89,6 +89,38 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      # 10up's dry run never commits, so it never logs in. This checks the
+      # secrets on every run: an SVN UNLOCK of a path that does not exist needs
+      # a login and changes nothing, and wp.org answers 401 only to a bad one.
+      - name: Check the SVN login
+        env:
+          SVN_USERNAME: ${{ secrets.WPORG_SVN_USERNAME }}
+          SVN_PASSWORD: ${{ secrets.WPORG_SVN_PASSWORD }}
+        run: |
+          for name in SVN_USERNAME SVN_PASSWORD; do
+            value="${!name}"
+            if [ -z "$value" ]; then
+              echo "::error::WPORG_$name is empty or not set"
+              exit 1
+            fi
+            if [[ "$value" =~ ^[[:space:]] || "$value" =~ [[:space:]]$ || "$value" == *$'\n'* ]]; then
+              echo "::error::WPORG_$name starts or ends with whitespace or holds a line break. Set it again with gh secret set."
+              exit 1
+            fi
+          done
+          if [[ "$SVN_USERNAME" == *@* ]]; then
+            echo "::error::WPORG_SVN_USERNAME looks like an email address. SVN wants the wordpress.org username."
+            exit 1
+          fi
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -X UNLOCK \
+            -H 'Lock-Token: <opaquelocktoken:00000000-0000-0000-0000-000000000000>' \
+            -u "$SVN_USERNAME:$SVN_PASSWORD" "https://plugins.svn.wordpress.org/agumail/trunk/.svn-login-check")
+          if [ "$CODE" = "401" ]; then
+            echo "::error::wordpress.org refused the SVN login (HTTP 401). Check WPORG_SVN_USERNAME (case-sensitive) and WPORG_SVN_PASSWORD (the SVN password from Account & Security, not the account password)."
+            exit 1
+          fi
+          echo "SVN login accepted (HTTP $CODE, ${#SVN_USERNAME}-character username)."
+
       - name: Stage listing assets
         run: bash .github/scripts/stage-wporg-assets.sh .wporg-assets
 
