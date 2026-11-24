@@ -68,7 +68,7 @@ jobs:
           REF: ${{ steps.ref.outputs.ref }}
         run: |
           HEADER=$(grep -m1 -E '^\s*\*\s*Version:' agumail/agumail.php | awk -F: '{print $2}' | tr -d ' \r')
-          CONSTANT=$(sed -nE "s/^define\('AGUMAIL_VERSION', *'([^']+)'\);.*/\1/p" agumail/agumail.php | head -n1)
+          CONSTANT=$(sed -nE "s/^define\( *'AGUMAIL_VERSION', *'([^']+)' *\);.*/\1/p" agumail/agumail.php | head -n1)
           STABLE=$(grep -m1 -E '^Stable tag:' agumail/readme.txt | awk -F: '{print $2}' | tr -d ' \r')
 
           VERSION="${REF#v}"
