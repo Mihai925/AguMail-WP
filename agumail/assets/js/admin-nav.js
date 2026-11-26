@@ -1,13 +1,14 @@
 /*
  * AguMail settings page: marks the section in view in the side nav, so the
- * merchant can see where they are on a long page. The nav's links are plain
+ * merchant can see where they are on a long page, and moves keyboard focus to
+ * the heading of the section a nav link leads to. The nav's links are plain
  * anchors and work without this. Nothing here talks to AguMail.
  */
 (function () {
 	'use strict';
 
 	// A section counts as in view once its top passes this far below the window's top.
-	var OFFSET = 120;
+	var offset = 120;
 
 	function start() {
 		var nav = document.querySelector('.agumail-nav');
@@ -46,12 +47,28 @@
 				current = chosen && chosen.getBoundingClientRect().top < window.innerHeight ? chosen : sections[sections.length - 1];
 			} else {
 				sections.forEach(function (section) {
-					if (section.getBoundingClientRect().top <= OFFSET) {
+					if (section.getBoundingClientRect().top <= offset) {
 						current = section;
 					}
 				});
 			}
 			mark(current.id);
+		}
+
+		// The browser scrolls to the section as before; focus follows to its
+		// heading, so the keyboard and screen readers carry on from there. It
+		// moves once the link's own jump is done, as that jump drops focus.
+		function focusSection(id) {
+			var section = document.getElementById(id);
+			var heading = section ? section.querySelector('h2, h3') : null;
+			var target = heading || section;
+			if (!target) {
+				return;
+			}
+			if (!target.hasAttribute('tabindex')) {
+				target.setAttribute('tabindex', '-1');
+			}
+			target.focus({ preventScroll: true });
 		}
 
 		function queue() {
@@ -65,6 +82,7 @@
 			var link = event.target.closest ? event.target.closest('a[href^="#agumail-section-"]') : null;
 			if (link) {
 				picked = link.getAttribute('href').slice(1);
+				window.setTimeout(focusSection.bind(null, picked), 0);
 				queue();
 			}
 		});

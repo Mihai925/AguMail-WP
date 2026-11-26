@@ -89,6 +89,8 @@ function onboarding_follow($href, $referer = '') {
             $_SERVER['HTTP_REFERER'] = $referer;
         }
         try {
+            // As admin-post.php: admin_init, then the action.
+            do_action('admin_init');
             do_action('admin_post_' . $query['action']);
         } finally {
             unset($_SERVER['HTTP_REFERER']);
@@ -348,6 +350,7 @@ function test_onboarding_a_store_hears_once_when_its_plan_holds_or_offers_store_
     agm_request('dismiss', 'admin', function () {
         agm_input(array('action' => 'agumail', 'agumail_action' => 'dismiss_store_notice', '_wpnonce' => agumail_admin_nonce('dismiss_store_notice')));
         do_action('init');
+        do_action('admin_init');
         do_action('admin_post_agumail');
     });
     expect_same('', onboarding_notice_on('plugins'), 'the notice came back after Dismiss');

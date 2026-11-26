@@ -265,7 +265,8 @@ function agumail_product_post_saved( $post_id, $post = null, $update = true ) {
 
 /**
  * A category renamed (or moved, or its slug changed): every product filed under
- * it carries its name.
+ * it carries its name. They are queued together, one statement per
+ * AGUMAIL_ENQUEUE_BATCH products.
  *
  * @param int $term_id The category's term id.
  */
@@ -274,9 +275,7 @@ function agumail_product_category_edited( $term_id ) {
 		return;
 	}
 	$ids = get_objects_in_term( (int) $term_id, 'product_cat' );
-	foreach ( is_array( $ids ) ? $ids : array() as $id ) {
-		agumail_product_queue( $id );
-	}
+	agumail_product_queue_many( is_array( $ids ) ? $ids : array() );
 }
 
 /**
@@ -323,17 +322,32 @@ function agumail_product_post_deleted( $post_id, $post = null ) {
  * variation deleted after it, or any later hook, says can no longer be built.
  *
  * @param int|string $product_id The product's id.
+ * @return bool Whether the product's row was written (or, holding a deleted product's record, kept).
  */
 function agumail_product_queue( $product_id ) {
-	$product_id = (int) $product_id;
-	if ( $product_id <= 0 || ! agumail_ready() || ! agumail_has_api_key() ) {
-		return false;
+	return (bool) agumail_product_queue_many( array( $product_id ) );
+}
+
+/**
+ * Queues catalogue products, one statement per AGUMAIL_ENQUEUE_BATCH of them.
+ * A product queued as deleted stays so: its row holds the record stored while
+ * the product still existed (the only payload a product row ever holds), and
+ * the upsert leaves such a row as it is, so no lookup comes first.
+ *
+ * @param array $product_ids The products' ids.
+ * @return int[] The ids whose rows were written or kept.
+ */
+function agumail_product_queue_many( array $product_ids ) {
+	$ids = array();
+	foreach ( $product_ids as $product_id ) {
+		if ( (int) $product_id > 0 ) {
+			$ids[] = (int) $product_id;
+		}
 	}
-	$queued = agumail_store()->find( 'product', (string) $product_id );
-	if ( $queued && agumail_product_stored_record( $queued ) ) {
-		return false;
+	if ( ! $ids || ! agumail_ready() || ! agumail_has_api_key() ) {
+		return array();
 	}
-	return agumail_enqueue( 'product', $product_id );
+	return agumail_enqueue_many( 'product', $ids, true );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

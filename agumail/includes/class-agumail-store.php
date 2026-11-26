@@ -10,10 +10,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-// Every table name is $wpdb->prefix plus a fixed name, written into the SQL;
-// every value goes through prepare(). Direct queries are the point of this
-// class: it is a queue in the plugin's own tables, where a cached row would be
-// a stale one.
+// Every table name goes in through a %i placeholder and every value through
+// prepare(), so the SQL text itself is fixed. Direct queries are the point of
+// this class: it is a queue in the plugin's own tables, where a cached row
+// would be a stale one.
 // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the plugin's own queue tables, read and written live.
 
 /**
@@ -54,9 +54,10 @@ class Agumail_Store {
 		global $wpdb;
 		if ( null === $payload ) {
 			$sql = $wpdb->prepare(
-				"INSERT INTO {$wpdb->prefix}agumail_outbox (`type`, `object_key`, `payload`, `version`, `attempts`, `status`, `available_at`, `created_at`, `updated_at`)
+				"INSERT INTO %i (`type`, `object_key`, `payload`, `version`, `attempts`, `status`, `available_at`, `created_at`, `updated_at`)
                  VALUES (%s, %s, NULL, 1, 0, 'pending', %s, %s, %s)
                  ON DUPLICATE KEY UPDATE `payload` = NULL, `version` = `version` + 1, `status` = 'pending', `available_at` = %s, `updated_at` = %s",
+				$this->outbox_table(),
 				$type,
 				$key,
 				$now,
@@ -67,9 +68,10 @@ class Agumail_Store {
 			);
 		} else {
 			$sql = $wpdb->prepare(
-				"INSERT INTO {$wpdb->prefix}agumail_outbox (`type`, `object_key`, `payload`, `version`, `attempts`, `status`, `available_at`, `created_at`, `updated_at`)
+				"INSERT INTO %i (`type`, `object_key`, `payload`, `version`, `attempts`, `status`, `available_at`, `created_at`, `updated_at`)
                  VALUES (%s, %s, %s, 1, 0, 'pending', %s, %s, %s)
                  ON DUPLICATE KEY UPDATE `payload` = %s, `version` = `version` + 1, `status` = 'pending', `available_at` = %s, `updated_at` = %s",
+				$this->outbox_table(),
 				$type,
 				$key,
 				$payload,
@@ -82,6 +84,44 @@ class Agumail_Store {
 			);
 		}
 		return $this->write( $sql, sprintf( 'queue %s %s', $type, $key ) );
+	}
+
+	/**
+	 * One statement for many keys of one type, each row written as enqueue()
+	 * writes it without a payload: a new row, or the existing one with its
+	 * payload cleared, its version bumped and made due now, its attempts kept.
+	 * With $keep_payload, an existing row that holds a payload (a deleted
+	 * product's stored record) is left exactly as it is. Callers pass at most
+	 * AGUMAIL_ENQUEUE_BATCH keys.
+	 *
+	 * @param string   $type         Outbox type.
+	 * @param string[] $keys         Object keys.
+	 * @param string   $now          Current time as a UTC DATETIME string.
+	 * @param bool     $keep_payload Whether a row that holds a payload stays as it is.
+	 */
+	public function enqueue_many( $type, array $keys, $now, $keep_payload = false ) {
+		global $wpdb;
+		if ( ! $keys ) {
+			return true;
+		}
+		$rows = array();
+		$args = array( $this->outbox_table() );
+		foreach ( $keys as $key ) {
+			$rows[] = "(%s, %s, NULL, 1, 0, 'pending', %s, %s, %s)";
+			array_push( $args, (string) $type, (string) $key, $now, $now, $now );
+		}
+		if ( $keep_payload ) {
+			// No assignment touches `payload`, so every IF() reads the row's payload as it was.
+			$update = "`version` = IF(`payload` IS NULL, `version` + 1, `version`), `status` = IF(`payload` IS NULL, 'pending', `status`), `available_at` = IF(`payload` IS NULL, %s, `available_at`), `updated_at` = IF(`payload` IS NULL, %s, `updated_at`)";
+		} else {
+			$update = "`payload` = NULL, `version` = `version` + 1, `status` = 'pending', `available_at` = %s, `updated_at` = %s";
+		}
+		array_push( $args, $now, $now );
+		$sql = 'INSERT INTO %i (`type`, `object_key`, `payload`, `version`, `attempts`, `status`, `available_at`, `created_at`, `updated_at`) VALUES '
+			. implode( ', ', $rows )
+			. ' ON DUPLICATE KEY UPDATE ' . $update;
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- built above from fixed SQL and placeholders only.
+		return $this->write( $wpdb->prepare( $sql, $args ), sprintf( 'queue %d %s rows', count( $keys ), $type ) );
 	}
 
 	/**
@@ -109,10 +149,10 @@ class Agumail_Store {
 	 */
 	public function has_work( $now ) {
 		global $wpdb;
-		if ( $wpdb->get_var( $wpdb->prepare( "SELECT 1 FROM {$wpdb->prefix}agumail_outbox WHERE `status` = 'pending' AND `available_at` <= %s LIMIT 1", $now ) ) ) {
+		if ( agumail_db_get_var( $wpdb->prepare( "SELECT 1 FROM %i WHERE `status` = 'pending' AND `available_at` <= %s LIMIT 1", $this->outbox_table(), $now ) ) ) {
 			return true;
 		}
-		return (bool) $wpdb->get_var( $wpdb->prepare( 'SELECT 1 FROM %i WHERE `dirty` = 1 LIMIT 1', $wpdb->prefix . 'agumail_carts' ) );
+		return (bool) agumail_db_get_var( $wpdb->prepare( 'SELECT 1 FROM %i WHERE `dirty` = 1 LIMIT 1', $this->carts_table() ) );
 	}
 
 	/**
@@ -124,9 +164,10 @@ class Agumail_Store {
 	public function find( $type, $key ) {
 		global $wpdb;
 		return $this->outbox_row(
-			$wpdb->get_row(
+			agumail_db_get_row(
 				$wpdb->prepare(
-					"SELECT * FROM {$wpdb->prefix}agumail_outbox WHERE `type` = %s AND `object_key` = %s",
+					'SELECT * FROM %i WHERE `type` = %s AND `object_key` = %s',
+					$this->outbox_table(),
 					$type,
 					$key
 				),
@@ -142,7 +183,7 @@ class Agumail_Store {
 	 */
 	public function get( $id ) {
 		global $wpdb;
-		return $this->outbox_row( $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}agumail_outbox WHERE `id` = %d", $id ), ARRAY_A ) );
+		return $this->outbox_row( agumail_db_get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE `id` = %d', $this->outbox_table(), $id ), ARRAY_A ) );
 	}
 
 	/**
@@ -155,11 +196,12 @@ class Agumail_Store {
 	 */
 	public function due( $type, $limit, $now, $after_id = 0 ) {
 		global $wpdb;
-		$rows = $wpdb->get_results(
+		$rows = agumail_db_get_results(
 			$wpdb->prepare(
-				"SELECT * FROM {$wpdb->prefix}agumail_outbox
+				"SELECT * FROM %i
              WHERE `status` = 'pending' AND `type` = %s AND `available_at` <= %s AND `id` > %d
              ORDER BY `id` ASC LIMIT %d",
+				$this->outbox_table(),
 				$type,
 				$now,
 				$after_id,
@@ -178,11 +220,11 @@ class Agumail_Store {
 	 */
 	public function complete( $id, $version ) {
 		global $wpdb;
-		$deleted = $wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->prefix}agumail_outbox WHERE `id` = %d AND `version` = %d", $id, $version ) );
+		$deleted = $wpdb->query( $wpdb->prepare( 'DELETE FROM %i WHERE `id` = %d AND `version` = %d', $this->outbox_table(), $id, $version ) );
 		if ( $deleted ) {
 			return true;
 		}
-		$wpdb->query( $wpdb->prepare( "UPDATE {$wpdb->prefix}agumail_outbox SET `attempts` = 0, `last_error` = NULL WHERE `id` = %d", $id ) );
+		$wpdb->query( $wpdb->prepare( 'UPDATE %i SET `attempts` = 0, `last_error` = NULL WHERE `id` = %d', $this->outbox_table(), $id ) );
 		return false;
 	}
 
@@ -194,7 +236,7 @@ class Agumail_Store {
 	 */
 	public function drop( $id, $version ) {
 		global $wpdb;
-		return (bool) $wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->prefix}agumail_outbox WHERE `id` = %d AND `version` = %d", $id, $version ) );
+		return (bool) $wpdb->query( $wpdb->prepare( 'DELETE FROM %i WHERE `id` = %d AND `version` = %d', $this->outbox_table(), $id, $version ) );
 	}
 
 	/**
@@ -209,7 +251,8 @@ class Agumail_Store {
 		global $wpdb;
 		return (bool) $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$wpdb->prefix}agumail_outbox SET `status` = 'failed', `last_error` = %s, `updated_at` = %s WHERE `id` = %d AND `version` = %d",
+				"UPDATE %i SET `status` = 'failed', `last_error` = %s, `updated_at` = %s WHERE `id` = %d AND `version` = %d",
+				$this->outbox_table(),
 				$error,
 				$now,
 				$id,
@@ -232,7 +275,8 @@ class Agumail_Store {
 		global $wpdb;
 		return (bool) $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$wpdb->prefix}agumail_outbox SET `attempts` = %d, `available_at` = %s, `last_error` = %s, `status` = %s, `updated_at` = %s WHERE `id` = %d",
+				'UPDATE %i SET `attempts` = %d, `available_at` = %s, `last_error` = %s, `status` = %s, `updated_at` = %s WHERE `id` = %d',
+				$this->outbox_table(),
 				$attempts,
 				$available_at,
 				$error,
@@ -253,7 +297,8 @@ class Agumail_Store {
 		global $wpdb;
 		return (bool) $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$wpdb->prefix}agumail_outbox SET `status` = 'pending', `attempts` = 0, `available_at` = %s, `last_error` = NULL, `updated_at` = %s WHERE `id` = %d",
+				"UPDATE %i SET `status` = 'pending', `attempts` = 0, `available_at` = %s, `last_error` = NULL, `updated_at` = %s WHERE `id` = %d",
+				$this->outbox_table(),
 				$now,
 				$now,
 				$id
@@ -270,7 +315,8 @@ class Agumail_Store {
 		global $wpdb;
 		return (int) $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$wpdb->prefix}agumail_outbox SET `status` = 'pending', `attempts` = 0, `available_at` = %s, `last_error` = NULL, `updated_at` = %s WHERE `status` = 'failed'",
+				"UPDATE %i SET `status` = 'pending', `attempts` = 0, `available_at` = %s, `last_error` = NULL, `updated_at` = %s WHERE `status` = 'failed'",
+				$this->outbox_table(),
 				$now,
 				$now
 			)
@@ -286,9 +332,9 @@ class Agumail_Store {
 	public function discard( $id, $version = null ) {
 		global $wpdb;
 		if ( null !== $version ) {
-			return (bool) $wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->prefix}agumail_outbox WHERE `id` = %d AND `status` = 'failed' AND `version` = %d", $id, $version ) );
+			return (bool) $wpdb->query( $wpdb->prepare( "DELETE FROM %i WHERE `id` = %d AND `status` = 'failed' AND `version` = %d", $this->outbox_table(), $id, $version ) );
 		}
-		return (bool) $wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->prefix}agumail_outbox WHERE `id` = %d AND `status` = 'failed'", $id ) );
+		return (bool) $wpdb->query( $wpdb->prepare( "DELETE FROM %i WHERE `id` = %d AND `status` = 'failed'", $this->outbox_table(), $id ) );
 	}
 
 	/**
@@ -296,38 +342,34 @@ class Agumail_Store {
 	 */
 	public function discard_failed() {
 		global $wpdb;
-		return (int) $wpdb->query( $wpdb->prepare( 'DELETE FROM %i WHERE `status` = %s', $wpdb->prefix . 'agumail_outbox', 'failed' ) );
+		return (int) $wpdb->query( $wpdb->prepare( 'DELETE FROM %i WHERE `status` = %s', $this->outbox_table(), 'failed' ) );
 	}
 
 	/**
 	 * Waiting rows of the given types go: all of them, or with $before only
-	 * those queued before it. Failed rows stay, for the merchant to see.
+	 * those queued before it. Failed rows stay, for the merchant to see. One
+	 * statement per type, each found through the (type, object_key) index.
 	 *
 	 * @param string[]    $types  Outbox types.
 	 * @param string|null $before UTC DATETIME string, or null for all.
 	 */
 	public function discard_pending( array $types, $before = null ) {
 		global $wpdb;
-		list($type_sql, $type_args) = $this->in_clause( 'type', $types );
-		if ( '' === $type_sql ) {
-			return 0;
+		$count = 0;
+		foreach ( array_unique( array_map( 'strval', $types ) ) as $type ) {
+			if ( null === $before ) {
+				$count += (int) $wpdb->query( $wpdb->prepare( "DELETE FROM %i WHERE `status` = 'pending' AND `type` = %s", $this->outbox_table(), $type ) );
+			} else {
+				$count += (int) $wpdb->query( $wpdb->prepare( "DELETE FROM %i WHERE `status` = 'pending' AND `type` = %s AND `updated_at` < %s", $this->outbox_table(), $type, $before ) );
+			}
 		}
-		$before_sql = null !== $before ? ' AND `updated_at` < %s' : '';
-		$args       = null !== $before ? array_merge( $type_args, array( $before ) ) : $type_args;
-		// phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- $type_sql is an IN () list of placeholders and $before_sql one placeholder; their values are in the arguments.
-		return (int) $wpdb->query(
-			$wpdb->prepare(
-				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- as above.
-				"DELETE FROM {$wpdb->prefix}agumail_outbox WHERE `status` = 'pending'{$type_sql}{$before_sql}",
-				$args
-			)
-		);
+		return $count;
 	}
 
 	/** Every row, pending or failed: the queue belonged to another AguMail account. */
 	public function clear() {
 		global $wpdb;
-		return (int) $wpdb->query( $wpdb->prepare( 'DELETE FROM %i', $wpdb->prefix . 'agumail_outbox' ) );
+		return (int) $wpdb->query( $wpdb->prepare( 'DELETE FROM %i', $this->outbox_table() ) );
 	}
 
 	/**
@@ -344,8 +386,11 @@ class Agumail_Store {
 			'oldest_pending_at' => null,
 			'by_type'           => array(),
 		);
-		$rows  = $wpdb->get_results(
-			"SELECT `status`, `type`, COUNT(*) AS total, MIN(`created_at`) AS oldest FROM {$wpdb->prefix}agumail_outbox GROUP BY `status`, `type`",
+		$rows  = agumail_db_get_results(
+			$wpdb->prepare(
+				'SELECT `status`, `type`, COUNT(*) AS total, MIN(`created_at`) AS oldest FROM %i GROUP BY `status`, `type`',
+				$this->outbox_table()
+			),
 			ARRAY_A
 		);
 		foreach ( is_array( $rows ) ? $rows : array() as $row ) {
@@ -362,9 +407,10 @@ class Agumail_Store {
 				$stats['oldest_pending_at'] = $row['oldest'];
 			}
 		}
-		$stats['due'] = (int) $wpdb->get_var(
+		$stats['due'] = (int) agumail_db_get_var(
 			$wpdb->prepare(
-				"SELECT COUNT(*) FROM {$wpdb->prefix}agumail_outbox WHERE `status` = 'pending' AND `available_at` <= %s",
+				"SELECT COUNT(*) FROM %i WHERE `status` = 'pending' AND `available_at` <= %s",
+				$this->outbox_table(),
 				$now
 			)
 		);
@@ -379,9 +425,10 @@ class Agumail_Store {
 	 */
 	public function failed( $limit, $offset ) {
 		global $wpdb;
-		$rows = $wpdb->get_results(
+		$rows = agumail_db_get_results(
 			$wpdb->prepare(
-				"SELECT * FROM {$wpdb->prefix}agumail_outbox WHERE `status` = 'failed' ORDER BY `updated_at` DESC, `id` DESC LIMIT %d OFFSET %d",
+				"SELECT * FROM %i WHERE `status` = 'failed' ORDER BY `updated_at` DESC, `id` DESC LIMIT %d OFFSET %d",
+				$this->outbox_table(),
 				$limit,
 				$offset
 			),
@@ -408,7 +455,7 @@ class Agumail_Store {
 	 */
 	public function cart_get( $id ) {
 		global $wpdb;
-		return $this->cart_row( $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}agumail_carts WHERE `id` = %s", $id ), ARRAY_A ) );
+		return $this->cart_row( agumail_db_get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE `id` = %s', $this->carts_table(), $id ), ARRAY_A ) );
 	}
 
 	/**
@@ -419,16 +466,26 @@ class Agumail_Store {
 	 */
 	public function cart_find_by_session( $session_key, array $statuses ) {
 		global $wpdb;
-		list($status_sql, $status_args) = $this->in_clause( 'status', $statuses );
-		// phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- $status_sql is an IN () list of placeholders; its values are in the arguments.
-		$row = $wpdb->get_row(
-			$wpdb->prepare(
-				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $status_sql is an IN () list of placeholders; its values are in the arguments.
-				"SELECT * FROM {$wpdb->prefix}agumail_carts WHERE `session_key` = %s{$status_sql} ORDER BY `updated_at` DESC LIMIT 1",
-				array_merge( array( $session_key ), $status_args )
-			),
-			ARRAY_A
-		);
+		if ( ! $statuses ) {
+			$row = agumail_db_get_row(
+				$wpdb->prepare(
+					'SELECT * FROM %i WHERE `session_key` = %s ORDER BY `updated_at` DESC LIMIT 1',
+					$this->carts_table(),
+					$session_key
+				),
+				ARRAY_A
+			);
+		} else {
+			$row = agumail_db_get_row(
+				$wpdb->prepare(
+					'SELECT * FROM %i WHERE `session_key` = %s AND FIND_IN_SET(`status`, %s) ORDER BY `updated_at` DESC LIMIT 1',
+					$this->carts_table(),
+					$session_key,
+					$this->set_list( $statuses )
+				),
+				ARRAY_A
+			);
+		}
 		return $this->cart_row( $row );
 	}
 
@@ -438,19 +495,34 @@ class Agumail_Store {
 	 * @param string   $email    Lowercased email address.
 	 * @param string[] $statuses Cart statuses to match.
 	 * @param int      $limit    Most carts to return.
+	 * @param int      $offset   Carts to skip.
 	 */
-	public function carts_by_email( $email, array $statuses, $limit ) {
+	public function carts_by_email( $email, array $statuses, $limit, $offset = 0 ) {
 		global $wpdb;
-		list($status_sql, $status_args) = $this->in_clause( 'status', $statuses );
-		$rows                           = $wpdb->get_results(
-			// phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, PluginCheck.Security.DirectDB.UnescapedDBParameter -- the IN () list adds placeholders; their values are in the same array.
-			$wpdb->prepare(
-				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $status_sql is an IN () list of placeholders; its values are in the arguments.
-				"SELECT * FROM {$wpdb->prefix}agumail_carts WHERE `email` = %s{$status_sql} ORDER BY `updated_at` DESC LIMIT %d",
-				array_merge( array( $email ), $status_args, array( $limit ) )
-			),
-			ARRAY_A
-		);
+		if ( ! $statuses ) {
+			$rows = agumail_db_get_results(
+				$wpdb->prepare(
+					'SELECT * FROM %i WHERE `email` = %s ORDER BY `updated_at` DESC LIMIT %d OFFSET %d',
+					$this->carts_table(),
+					$email,
+					$limit,
+					$offset
+				),
+				ARRAY_A
+			);
+		} else {
+			$rows = agumail_db_get_results(
+				$wpdb->prepare(
+					'SELECT * FROM %i WHERE `email` = %s AND FIND_IN_SET(`status`, %s) ORDER BY `updated_at` DESC LIMIT %d OFFSET %d',
+					$this->carts_table(),
+					$email,
+					$this->set_list( $statuses ),
+					$limit,
+					$offset
+				),
+				ARRAY_A
+			);
+		}
 		return array_map( array( $this, 'cart_row' ), is_array( $rows ) ? $rows : array() );
 	}
 
@@ -462,7 +534,7 @@ class Agumail_Store {
 	 */
 	public function cart_delete( $id ) {
 		global $wpdb;
-		return (bool) $wpdb->delete( $wpdb->prefix . 'agumail_carts', array( 'id' => (string) $id ), array( '%s' ) );
+		return (bool) $wpdb->delete( $this->carts_table(), array( 'id' => (string) $id ), array( '%s' ) );
 	}
 
 	/**
@@ -493,7 +565,7 @@ class Agumail_Store {
 		$insert      = array_merge( $defaults, $insert_only, $fields );
 		$columns     = array( '`id`' );
 		$values      = array( '%s' );
-		$args        = array( $id );
+		$args        = array( $this->carts_table(), $id );
 		foreach ( $insert as $column => $value ) {
 			$columns[] = '`' . $column . '`';
 			if ( null === $value ) {
@@ -525,10 +597,10 @@ class Agumail_Store {
 		$updates[]   = '`version` = `version` + 1';
 		$updates[]   = '`dirty` = 1';
 		$updates[]   = '`updated_at` = %s';
-		$sql         = "INSERT INTO {$wpdb->prefix}agumail_carts (" . implode( ', ', $columns ) . ', `version`, `queued_version`, `dirty`, `created_at`, `updated_at`)'
+		$sql         = 'INSERT INTO %i (' . implode( ', ', $columns ) . ', `version`, `queued_version`, `dirty`, `created_at`, `updated_at`)'
 			. ' VALUES (' . implode( ', ', $values ) . ', 1, 0, 1, %s, %s)'
 			. ' ON DUPLICATE KEY UPDATE ' . implode( ', ', $updates );
-		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- built above from the table name, whitelisted column names and placeholders only.
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- built above from whitelisted column names and placeholders only.
 		return $this->write( $wpdb->prepare( $sql, array_merge( $args, array( $now, $now ), $update_args, array( $now ) ) ), 'save cart ' . $id );
 	}
 
@@ -544,7 +616,7 @@ class Agumail_Store {
 		global $wpdb;
 		$fields = agumail_cart_known_columns( $fields );
 		$sets   = array();
-		$args   = array();
+		$args   = array( $this->carts_table() );
 		foreach ( $fields as $column => $value ) {
 			if ( null === $value ) {
 				$sets[] = '`' . $column . '` = NULL';
@@ -560,8 +632,8 @@ class Agumail_Store {
 		$sets[] = '`updated_at` = %s';
 		$args[] = $now;
 		$args[] = $id;
-		$sql    = "UPDATE {$wpdb->prefix}agumail_carts SET " . implode( ', ', $sets ) . ' WHERE `id` = %s';
-		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- built above from the table name, whitelisted column names and placeholders only.
+		$sql    = 'UPDATE %i SET ' . implode( ', ', $sets ) . ' WHERE `id` = %s';
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- built above from whitelisted column names and placeholders only.
 		return (bool) $wpdb->query( $wpdb->prepare( $sql, $args ) );
 	}
 
@@ -572,9 +644,10 @@ class Agumail_Store {
 	 */
 	public function carts_dirty( $limit ) {
 		global $wpdb;
-		$rows = $wpdb->get_results(
+		$rows = agumail_db_get_results(
 			$wpdb->prepare(
-				"SELECT * FROM {$wpdb->prefix}agumail_carts WHERE `dirty` = 1 ORDER BY `updated_at` ASC LIMIT %d",
+				'SELECT * FROM %i WHERE `dirty` = 1 ORDER BY `updated_at` ASC LIMIT %d',
+				$this->carts_table(),
 				$limit
 			),
 			ARRAY_A
@@ -592,7 +665,8 @@ class Agumail_Store {
 		global $wpdb;
 		return (bool) $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$wpdb->prefix}agumail_carts SET `queued_version` = %d, `dirty` = IF(`version` > %d, 1, 0) WHERE `id` = %s AND `queued_version` < %d",
+				'UPDATE %i SET `queued_version` = %d, `dirty` = IF(`version` > %d, 1, 0) WHERE `id` = %s AND `queued_version` < %d',
+				$this->carts_table(),
 				$version,
 				$version,
 				$id,
@@ -601,10 +675,43 @@ class Agumail_Store {
 		);
 	}
 
+	/**
+	 * Does what cart_mark_queued() does, for many carts in one statement: each
+	 * cart records the version moved into the outbox, and its flag
+	 * goes down only if it has not changed again since. Callers pass at most
+	 * AGUMAIL_ENQUEUE_BATCH carts. Returns how many carts it changed.
+	 *
+	 * @param int[] $versions Version moved into the outbox, by cart id.
+	 */
+	public function carts_mark_queued( array $versions ) {
+		global $wpdb;
+		if ( ! $versions ) {
+			return 0;
+		}
+		$when      = array();
+		$when_args = array();
+		$ids       = array();
+		$id_args   = array();
+		foreach ( $versions as $id => $version ) {
+			$when[] = 'WHEN %s THEN %d';
+			array_push( $when_args, (string) $id, (int) $version );
+			$ids[]     = '%s';
+			$id_args[] = (string) $id;
+		}
+		$version_moved = 'CASE `id` ' . implode( ' ', $when ) . ' END';
+		// The flag is worked out from `version` alone and set first, so the
+		// order MySQL applies the two assignments in does not matter.
+		$sql  = 'UPDATE %i SET `dirty` = IF(`version` > ' . $version_moved . ', 1, 0), `queued_version` = ' . $version_moved
+			. ' WHERE `id` IN (' . implode( ', ', $ids ) . ') AND `queued_version` < ' . $version_moved;
+		$args = array_merge( array( $this->carts_table() ), $when_args, $when_args, $id_args, $when_args );
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- built above from fixed SQL and placeholders only.
+		return (int) $wpdb->query( $wpdb->prepare( $sql, $args ) );
+	}
+
 	/** No cart waits to be moved into the outbox any more (store sync was held). */
 	public function carts_clear_dirty() {
 		global $wpdb;
-		return (int) $wpdb->query( $wpdb->prepare( 'UPDATE %i SET `dirty` = 0 WHERE `dirty` = 1', $wpdb->prefix . 'agumail_carts' ) );
+		return (int) $wpdb->query( $wpdb->prepare( 'UPDATE %i SET `dirty` = 0 WHERE `dirty` = 1', $this->carts_table() ) );
 	}
 
 	/**
@@ -615,9 +722,10 @@ class Agumail_Store {
 	 */
 	public function carts_count_by_ip( $ip_hash, $since ) {
 		global $wpdb;
-		return (int) $wpdb->get_var(
+		return (int) agumail_db_get_var(
 			$wpdb->prepare(
-				"SELECT COUNT(*) FROM {$wpdb->prefix}agumail_carts WHERE `ip_hash` = %s AND `created_at` >= %s",
+				'SELECT COUNT(*) FROM %i WHERE `ip_hash` = %s AND `created_at` >= %s',
+				$this->carts_table(),
 				$ip_hash,
 				$since
 			)
@@ -625,22 +733,23 @@ class Agumail_Store {
 	}
 
 	/**
-	 * Deletes carts last touched before $before, among the given statuses (any when empty).
+	 * Deletes carts last touched before $before, among the given statuses (any
+	 * when empty). One statement per status, each a range of the
+	 * (status, updated_at) index.
 	 *
 	 * @param string[] $statuses Cart statuses to match.
 	 * @param string   $before   UTC DATETIME string.
 	 */
 	public function carts_purge( array $statuses, $before ) {
 		global $wpdb;
-		list($status_sql, $status_args) = $this->in_clause( 'status', $statuses );
-		// phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- $status_sql is an IN () list of placeholders; its values are in the arguments.
-		return (int) $wpdb->query(
-			$wpdb->prepare(
-				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $status_sql is an IN () list of placeholders; its values are in the arguments.
-				"DELETE FROM {$wpdb->prefix}agumail_carts WHERE `updated_at` < %s{$status_sql}",
-				array_merge( array( $before ), $status_args )
-			)
-		);
+		if ( ! $statuses ) {
+			return (int) $wpdb->query( $wpdb->prepare( 'DELETE FROM %i WHERE `updated_at` < %s', $this->carts_table(), $before ) );
+		}
+		$count = 0;
+		foreach ( array_unique( array_map( 'strval', $statuses ) ) as $status ) {
+			$count += (int) $wpdb->query( $wpdb->prepare( 'DELETE FROM %i WHERE `status` = %s AND `updated_at` < %s', $this->carts_table(), $status, $before ) );
+		}
+		return $count;
 	}
 
 	/**
@@ -665,13 +774,15 @@ class Agumail_Store {
 	 */
 	public function acquire_lock( $name, $ttl, $now ) {
 		global $wpdb;
-		$token    = wp_generate_uuid4();
-		$value    = $token . '|' . ( (int) $now + (int) $ttl );
-		$existing = (string) $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", $name ) );
+		$token = wp_generate_uuid4();
+		$value = $token . '|' . ( (int) $now + (int) $ttl );
+		// Fresh: another request may have taken or freed the lock since.
+		$existing = (string) agumail_db_get_var( $wpdb->prepare( 'SELECT option_value FROM %i WHERE option_name = %s', $wpdb->options, $name ), true );
 		if ( '' === $existing ) {
 			$taken = $wpdb->query(
 				$wpdb->prepare(
-					"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+					"INSERT IGNORE INTO %i (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+					$wpdb->options,
 					$name,
 					$value
 				)
@@ -683,7 +794,8 @@ class Agumail_Store {
 			}
 			$taken = $wpdb->query(
 				$wpdb->prepare(
-					"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+					'UPDATE %i SET option_value = %s WHERE option_name = %s AND option_value = %s',
+					$wpdb->options,
 					$value,
 					$name,
 					$existing
@@ -704,7 +816,8 @@ class Agumail_Store {
 		global $wpdb;
 		$wpdb->query(
 			$wpdb->prepare(
-				"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value LIKE %s",
+				'DELETE FROM %i WHERE option_name = %s AND option_value LIKE %s',
+				$wpdb->options,
 				$name,
 				$wpdb->esc_like( $token . '|' ) . '%'
 			)
@@ -713,16 +826,23 @@ class Agumail_Store {
 	}
 
 	/**
-	 * An AND ... IN () clause of placeholders and its values, or an empty clause when there are no values.
+	 * Values as one comma-separated list for FIND_IN_SET(). Every status this
+	 * class matches is one of the plugin's own fixed slugs, none with a comma;
+	 * a value with one could match no stored status, so it is left out rather
+	 * than split in two.
 	 *
-	 * @param string $column Column name.
-	 * @param array  $values Values to match.
+	 * @param array $values Values to match.
 	 */
-	private function in_clause( $column, array $values ) {
-		if ( ! $values ) {
-			return array( '', array() );
-		}
-		return array( ' AND `' . $column . '` IN (' . implode( ', ', array_fill( 0, count( $values ), '%s' ) ) . ')', array_values( $values ) );
+	private function set_list( array $values ) {
+		return implode(
+			',',
+			array_filter(
+				array_map( 'strval', $values ),
+				function ( $value ) {
+					return false === strpos( $value, ',' );
+				}
+			)
+		);
 	}
 }
 // phpcs:enable

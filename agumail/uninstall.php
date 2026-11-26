@@ -59,7 +59,8 @@ $agumail_uninstall_site = function () {
 	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- options by name pattern, which the options API cannot do; the cache is cleared below.
 	$wpdb->query(
 		$wpdb->prepare(
-			"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s OR option_name LIKE %s OR option_name LIKE %s OR option_name LIKE %s",
+			'DELETE FROM %i WHERE option_name LIKE %s OR option_name LIKE %s OR option_name LIKE %s OR option_name LIKE %s OR option_name LIKE %s',
+			$wpdb->options,
 			$wpdb->esc_like( 'agumail_' ) . '%',
 			$wpdb->esc_like( '_transient_agumail_' ) . '%',
 			$wpdb->esc_like( '_transient_timeout_agumail_' ) . '%',
@@ -67,6 +68,19 @@ $agumail_uninstall_site = function () {
 			$wpdb->esc_like( '_site_transient_timeout_agumail_' ) . '%'
 		)
 	);
+	// The transients named per merchant or per connect attempt, by name: each
+	// merchant's next notice, the store sync offer, the connect callback's owner.
+	foreach ( array( 'agumail_notice_', 'agumail_offer_sync_', 'agumail_connect_owner_' ) as $agumail_transient_prefix ) {
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- transients by name prefix, which the transients API cannot do.
+		$wpdb->query(
+			$wpdb->prepare(
+				'DELETE FROM %i WHERE option_name LIKE %s OR option_name LIKE %s',
+				$wpdb->options,
+				$wpdb->esc_like( '_transient_' . $agumail_transient_prefix ) . '%',
+				$wpdb->esc_like( '_transient_timeout_' . $agumail_transient_prefix ) . '%'
+			)
+		);
+	}
 	wp_cache_delete( 'alloptions', 'options' );
 
 	// Contact Form 7 keeps each form's AguMail settings as post meta on the form.
@@ -80,10 +94,9 @@ $agumail_uninstall_site = function () {
 	// own copy does not load while it is being deleted): AguMail's jobs, and
 	// their log lines, go straight from its tables.
 	foreach ( array( 'actionscheduler_actions', 'actionscheduler_groups' ) as $table ) {
-		$name = $wpdb->prefix . $table;
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- whether Action Scheduler's table exists; only the database knows.
-		$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $name ) ) );
-		if ( $found !== $name ) {
+		// Whether Action Scheduler's table exists: the number of tables by that name.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- once, while the plugin is deleted; only the database knows.
+		if ( ! $wpdb->query( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $wpdb->prefix . $table ) ) ) ) {
 			return;
 		}
 	}

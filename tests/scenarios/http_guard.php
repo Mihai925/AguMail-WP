@@ -60,6 +60,25 @@ function test_http_guard_allows_admin_ajax_for_the_action_scheduler_runner_and_s
     expect_same(1, count($result['http']), 'a store manager\'s admin tool on admin-ajax could not call AguMail');
 }
 
+function test_http_guard_a_merchant_waiting_on_a_wp_admin_page_waits_less() {
+    agm_grant('manage_woocommerce');
+    agumail_admin_register_action('agm_test_tool', function () {
+        return http_guard_call();
+    });
+    // A form post from the settings page (admin-post.php): the merchant is waiting.
+    $result = agm_request('settings form post', 'admin', function () {
+        agm_input(array(), array('action' => 'agumail', 'agumail_action' => 'agm_test_tool', '_wpnonce' => agumail_admin_nonce('agm_test_tool')));
+        do_action('admin_post_agumail');
+    });
+    expect_same(8, $result['http'][0]['timeout'], 'a call the merchant waits on should time out after 8 seconds');
+    // The same tool over admin-ajax runs as background work, with the longer wait.
+    $result = agm_request('store manager admin-ajax', 'shopper_ajax', function () {
+        agm_input(array(), array('action' => 'agumail', 'agumail_action' => 'agm_test_tool', '_ajax_nonce' => agumail_admin_nonce('agm_test_tool')));
+        do_action('wp_ajax_agumail');
+    });
+    expect_same(15, $result['http'][0]['timeout'], 'background calls should keep 15 seconds');
+}
+
 function test_http_guard_logs_a_refusal_without_the_address() {
     agm_request('storefront page', 'shopper', function () {
         agumail_run_in_background(function () {

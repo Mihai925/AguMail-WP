@@ -26,6 +26,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 define( 'AGUMAIL_KEY_MAX', 191 );
 define( 'AGUMAIL_ERROR_MAX', 1000 );
 define( 'AGUMAIL_CART_COLUMNS', 'token,session_key,user_id,email,lines,total,currency,status,order_id,ip_hash' );
+define( 'AGUMAIL_ENQUEUE_BATCH', 200 );
 
 require_once __DIR__ . '/class-agumail-store.php';
 
@@ -126,6 +127,53 @@ function agumail_enqueue( $type, $key, $payload = null ) {
 		}
 	}
 	return agumail_store()->enqueue( $type, $key, $json, agumail_mysql_time() );
+}
+
+/**
+ * Records that AguMail must hear about many objects of one type, each as
+ * agumail_enqueue() would without a payload, and under the same conditions:
+ * nothing before the tables exist, while the store is not connected, inside
+ * the drain, or for a type the plan does not queue. One statement per
+ * AGUMAIL_ENQUEUE_BATCH keys.
+ *
+ * With $keep_payload, a row already queued with a payload (a deleted
+ * product's stored record) is left as it is.
+ *
+ * Returns the keys, as given, whose rows were written.
+ *
+ * @param string $type         Outbox type.
+ * @param array  $keys         Object keys: ids, or contacts' emails.
+ * @param bool   $keep_payload Whether a row that holds a payload stays as it is.
+ * @return array
+ */
+function agumail_enqueue_many( $type, array $keys, $keep_payload = false ) {
+	if ( ! $keys || ! agumail_ready() || ! agumail_has_api_key() || agumail_enqueue_suppressed() || ! agumail_may_queue( $type ) ) {
+		return array();
+	}
+	$type  = (string) $type;
+	$given = array();
+	$rows  = array();
+	foreach ( $keys as $key ) {
+		$row_key = agumail_outbox_key( $type, $key );
+		if ( '' !== $row_key ) {
+			$given[] = $key;
+			$rows[]  = $row_key;
+		}
+	}
+	$queued = array();
+	$now    = agumail_mysql_time();
+	foreach ( array_chunk( array_keys( $rows ), AGUMAIL_ENQUEUE_BATCH ) as $chunk ) {
+		$chunk_rows = array();
+		foreach ( $chunk as $i ) {
+			$chunk_rows[] = $rows[ $i ];
+		}
+		if ( agumail_store()->enqueue_many( $type, $chunk_rows, $now, (bool) $keep_payload ) ) {
+			foreach ( $chunk as $i ) {
+				$queued[] = $given[ $i ];
+			}
+		}
+	}
+	return $queued;
 }
 
 /**
@@ -407,15 +455,30 @@ function agumail_carts_purge( array $statuses, $before_timestamp ) {
  * Queues every cart that changed since it was last queued, and remembers the
  * version it queued. For the drain's agumail_drain_move_carts step.
  *
+ * Each batch of AGUMAIL_ENQUEUE_BATCH carts is two statements: one upsert of
+ * their outbox rows, then one update that records the versions queued (a
+ * cart that changed again since it was read keeps its flag). A batch whose
+ * upsert failed is not marked, so it is moved again on the next run.
+ *
  * @param int $limit Most carts to move.
  */
 function agumail_carts_move_dirty_to_outbox( $limit = 500 ) {
 	$moved = 0;
-	foreach ( agumail_carts_dirty( $limit ) as $cart ) {
-		if ( agumail_enqueue( 'cart', $cart['id'] ) ) {
-			agumail_cart_mark_queued( $cart['id'], $cart['version'] );
-			++$moved;
+	foreach ( array_chunk( agumail_carts_dirty( $limit ), AGUMAIL_ENQUEUE_BATCH ) as $carts ) {
+		$versions = array();
+		foreach ( $carts as $cart ) {
+			$versions[ (string) $cart['id'] ] = (int) $cart['version'];
 		}
+		$queued = agumail_enqueue_many( 'cart', array_map( 'strval', array_keys( $versions ) ) );
+		if ( ! $queued ) {
+			continue;
+		}
+		$marked = array();
+		foreach ( $queued as $id ) {
+			$marked[ $id ] = $versions[ $id ];
+		}
+		agumail_store()->carts_mark_queued( $marked );
+		$moved += count( $queued );
 	}
 	return $moved;
 }

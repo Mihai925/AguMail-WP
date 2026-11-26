@@ -178,7 +178,7 @@ function test_forms_the_block_editor_script_uses_the_wordpress_globals($plugin_d
     }
     expect_that(strpos($source, 'import ') === false && strpos($source, 'require(') === false, 'block.js needs a build step');
     expect_that(strpos($source, 'apiVersion: 3') !== false, 'block.js is not on block API version 3');
-    $controls = preg_match_all('/el\((SelectControl|TextControl|ToggleControl),\s*\{/', $source);
+    $controls = preg_match_all('/el\((?:components\.)?(SelectControl|TextControl|ToggleControl),\s*\{/', $source);
     expect_same($controls, substr_count($source, '__nextHasNoMarginBottom: true'), 'not every control opts into the new bottom margin');
     expect_same($controls, substr_count($source, '__next40pxDefaultSize: true'), 'not every control opts into the 40px size');
     expect_that($controls >= 6, 'fewer controls than expected: ' . $controls);

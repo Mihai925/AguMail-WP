@@ -396,11 +396,8 @@ function agumail_drain_rounds( $deadline ) {
 				return 'budget';
 			}
 			$result = agumail_drain_batch( $spec, $cursors[ $type ], $deadline );
-			// Objects loaded to build the batch need not stay in memory for the next one,
-			// when the object cache can drop them without flushing everything.
-			if ( function_exists( 'wp_cache_flush_runtime' ) && function_exists( 'wp_cache_supports' ) && wp_cache_supports( 'flush_runtime' ) ) {
-				wp_cache_flush_runtime();
-			}
+			// Objects loaded to build the batch need not stay in memory for the next one.
+			agumail_release_cache_memory();
 			if ( 'stop' === $result ) {
 				return 'stopped';
 			}

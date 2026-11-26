@@ -14,8 +14,8 @@
 (function (window, $) {
   'use strict';
 
-  var SECTION = 'section_agumail';
-  var CONTROL = 'agumail_fields_map';
+  var agumailSection = 'section_agumail';
+  var agumailControl = 'agumail_fields_map';
 
   function remoteFields() {
     var data = window.agumailElementor;
@@ -28,7 +28,7 @@
     if (!page || !page.collection || !page.children) {
       return null;
     }
-    var model = page.collection.findWhere({ name: CONTROL });
+    var model = page.collection.findWhere({ name: agumailControl });
     return model ? page.children.findByModelCid(model.cid) : null;
   }
 
@@ -47,7 +47,7 @@
 
   function listen() {
     window.elementor.channels.editor.on('section:activated', function (sectionName, editor) {
-      if (sectionName !== SECTION || !isFormWidget(editor)) {
+      if (sectionName !== agumailSection || !isFormWidget(editor)) {
         return;
       }
       // After Elementor has drawn the section's controls, as its own integrations wait.

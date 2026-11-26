@@ -403,7 +403,9 @@ function agumail_admin_hook_suffix( $set = null ) {
  * @param string $hook_suffix The current admin page.
  */
 function agumail_admin_enqueue( $hook_suffix = '' ) {
-	if ( agumail_admin_hook_suffix() !== $hook_suffix || ! current_user_can( AGUMAIL_ADMIN_CAPABILITY ) ) {
+	// Only on the AguMail page: the hook it was given, and the screen WordPress set up for it.
+	$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+	if ( agumail_admin_hook_suffix() !== $hook_suffix || ( $screen && agumail_admin_hook_suffix() !== $screen->id ) || ! current_user_can( AGUMAIL_ADMIN_CAPABILITY ) ) {
 		return;
 	}
 	wp_enqueue_style( 'agumail-admin-page', plugins_url( 'assets/css/admin.css', AGUMAIL_FILE ), array(), AGUMAIL_VERSION );
@@ -451,6 +453,22 @@ function agumail_admin_render_page() {
 	echo '</div></div></div>';
 }
 
+/**
+ * The word a screen reader says before a coloured badge or callout, so its
+ * meaning is never in its colour alone: Status, Warning or Error.
+ *
+ * @param string $state One of status, warning or error.
+ * @return string
+ */
+function agumail_admin_state_word( $state ) {
+	$words = array(
+		'status'  => __( 'Status:', 'agumail' ),
+		'warning' => __( 'Warning:', 'agumail' ),
+		'error'   => __( 'Error:', 'agumail' ),
+	);
+	return isset( $words[ $state ] ) ? $words[ $state ] : $words['status'];
+}
+
 /** The title, whether the store is connected, and a way into AguMail itself. */
 function agumail_admin_render_header() {
 	$connected  = agumail_has_api_key();
@@ -468,7 +486,7 @@ function agumail_admin_render_header() {
 	echo '<div class="agumail-header">';
 	echo '<span class="agumail-logo dashicons dashicons-email-alt" aria-hidden="true"></span>';
 	echo '<h1>' . esc_html__( 'AguMail', 'agumail' ) . '</h1>';
-	echo '<span class="agumail-badge is-' . esc_attr( $state ) . '">' . esc_html( $label ) . '</span>';
+	echo '<span class="agumail-badge is-' . esc_attr( $state ) . '"><span class="screen-reader-text">' . esc_html( agumail_admin_state_word( 'status' ) ) . ' </span>' . esc_html( $label ) . '</span>';
 	if ( $connected && '' !== $connection['shopName'] ) {
 		echo '<span class="agumail-header-account">' . esc_html( $connection['shopName'] ) . '</span>';
 	}

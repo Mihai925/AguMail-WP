@@ -60,6 +60,22 @@ function agumail_map_admin_capability( $caps, $cap ) {
 add_filter( 'wp_consent_api_registered_' . plugin_basename( AGUMAIL_FILE ), '__return_true' );
 
 /**
+ * A time as the site shows dates: in its timezone and language. wp_date()
+ * (WordPress 5.3 and later, which the plugin requires), with date_i18n() as
+ * the fallback.
+ *
+ * @param string $format    A PHP date format.
+ * @param int    $timestamp A Unix timestamp.
+ * @return string
+ */
+function agumail_date( $format, $timestamp ) {
+	if ( function_exists( 'wp_date' ) ) {
+		return (string) wp_date( $format, (int) $timestamp );
+	}
+	return (string) date_i18n( $format, (int) $timestamp + (int) ( (float) get_option( 'gmt_offset', 0 ) * HOUR_IN_SECONDS ) );
+}
+
+/**
  * Whether a consent plugin implementing the WP Consent API is active. Without
  * one there is nobody to ask, so the site's own settings decide, as before.
  *
@@ -80,6 +96,28 @@ function agumail_consent_api_active() {
  */
 function agumail_has_consent( $category ) {
 	return ! function_exists( 'wp_has_consent' ) || (bool) wp_has_consent( $category );
+}
+
+/**
+ * Sets a cookie of a WP Consent API category, or removes one when $options
+ * expires it. With a consent plugin, a cookie the visitor has not allowed is
+ * not set. Functional cookies are always allowed by the API, which is how a
+ * cookie is always removed.
+ *
+ * @param string $name     The cookie's name.
+ * @param string $value    Its value.
+ * @param array  $options  As setcookie() takes them: expires, path, domain, secure, httponly, samesite.
+ * @param string $category The consent category: marketing, statistics, functional...
+ * @return bool Whether the cookie header was sent.
+ */
+function agumail_setcookie( $name, $value, array $options, $category ) {
+	if ( function_exists( 'wp_has_consent' ) && ! wp_has_consent( $category ) ) {
+		return false;
+	}
+	if ( headers_sent() ) {
+		return false;
+	}
+	return setcookie( $name, $value, $options );
 }
 
 /**
@@ -147,6 +185,52 @@ function agumail_woocommerce_active() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Cleans a request value for its type, as the original read did: text with
+ * sanitize_text_field(), a key with sanitize_key(), an email with
+ * sanitize_email(), a URL with esc_url_raw().
+ *
+ * @param string $value The unslashed value.
+ * @param string $type  One of text, key, email or url.
+ * @return string
+ */
+function agumail_clean_input( $value, $type ) {
+	switch ( $type ) {
+		case 'key':
+			return sanitize_key( $value );
+		case 'email':
+			return sanitize_email( $value );
+		case 'url':
+			return esc_url_raw( $value );
+		default:
+			return sanitize_text_field( $value );
+	}
+}
+
+/**
+ * A posted field ($_POST), unslashed, or null when it was not posted. Raw:
+ * callers clean it for its type.
+ *
+ * @param string $name The field's name.
+ * @return mixed
+ */
+function agumail_posted_raw( $name ) {
+	// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- see above; each caller cleans the value for its type.
+	return wp_unslash( $_POST[ $name ] ?? null );
+}
+
+/**
+ * A query parameter ($_GET), unslashed, or null when it is not in the URL.
+ * Raw: callers clean it for its type.
+ *
+ * @param string $name The parameter's name.
+ * @return mixed
+ */
+function agumail_queried_raw( $name ) {
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- see above; each caller cleans the value for its type.
+	return wp_unslash( $_GET[ $name ] ?? null );
+}
+
+/**
  * A posted field ($_POST), cleaned, or '' when it is missing or not text.
  *
  * @param string $name The field's name.
@@ -154,21 +238,8 @@ function agumail_woocommerce_active() {
  * @return string
  */
 function agumail_posted( $name, $type = 'text' ) {
-	// phpcs:disable WordPress.Security.NonceVerification.Missing -- see above: the caller's request needs no nonce, or one was checked.
-	if ( ! isset( $_POST[ $name ] ) || ! is_string( $_POST[ $name ] ) ) {
-		return '';
-	}
-	switch ( $type ) {
-		case 'key':
-			return sanitize_key( wp_unslash( $_POST[ $name ] ) );
-		case 'email':
-			return sanitize_email( wp_unslash( $_POST[ $name ] ) );
-		case 'url':
-			return esc_url_raw( wp_unslash( $_POST[ $name ] ) );
-		default:
-			return sanitize_text_field( wp_unslash( $_POST[ $name ] ) );
-	}
-	// phpcs:enable
+	$value = agumail_posted_raw( $name );
+	return is_string( $value ) ? agumail_clean_input( $value, $type ) : '';
 }
 
 /**
@@ -178,8 +249,8 @@ function agumail_posted( $name, $type = 'text' ) {
  * @return bool
  */
 function agumail_posted_flag( $name ) {
-	// phpcs:ignore WordPress.Security.NonceVerification.Missing -- see above: the caller's request needs no nonce, or one was checked.
-	return isset( $_POST[ $name ] ) && ! empty( $_POST[ $name ] );
+	$value = agumail_posted_raw( $name );
+	return ! empty( $value );
 }
 
 /**
@@ -190,21 +261,8 @@ function agumail_posted_flag( $name ) {
  * @return string
  */
 function agumail_queried( $name, $type = 'text' ) {
-	// phpcs:disable WordPress.Security.NonceVerification.Recommended -- see above: the caller's request needs no nonce, or one was checked.
-	if ( ! isset( $_GET[ $name ] ) || ! is_string( $_GET[ $name ] ) ) {
-		return '';
-	}
-	switch ( $type ) {
-		case 'key':
-			return sanitize_key( wp_unslash( $_GET[ $name ] ) );
-		case 'email':
-			return sanitize_email( wp_unslash( $_GET[ $name ] ) );
-		case 'url':
-			return esc_url_raw( wp_unslash( $_GET[ $name ] ) );
-		default:
-			return sanitize_text_field( wp_unslash( $_GET[ $name ] ) );
-	}
-	// phpcs:enable
+	$value = agumail_queried_raw( $name );
+	return is_string( $value ) ? agumail_clean_input( $value, $type ) : '';
 }
 
 /**
@@ -214,8 +272,7 @@ function agumail_queried( $name, $type = 'text' ) {
  * @return bool
  */
 function agumail_queried_flag( $name ) {
-	// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- see above: the caller's request needs no nonce, or one was checked.
-	return isset( $_GET[ $name ] );
+	return null !== agumail_queried_raw( $name );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

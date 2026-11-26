@@ -448,7 +448,7 @@ function test_shopper_path_a_paid_classic_checkout_is_quiet() {
     }));
 
     shopper_path_expect_quiet(agm_request('capture while typing the email', 'shopper', function () {
-        agm_input(array(), array('email' => 'ada@example.com', 'context' => 'checkout'));
+        agm_input(array(), array('email' => 'ada@example.com', 'context' => 'checkout', 'nonce' => wp_create_nonce('agumail_capture')));
         shopper_path_wc_ajax('agumail_capture', function () {
             do_action('wc_ajax_agumail_capture');
         });
@@ -562,7 +562,7 @@ function test_shopper_path_capture_restore_registration_and_account_requests_are
     WC()->cart->add_line($products['candle'], 1);
 
     shopper_path_expect_quiet(agm_request('capture on the login form', 'shopper', function () {
-        agm_input(array(), array('email' => 'fay@example.com', 'context' => 'login'));
+        agm_input(array(), array('email' => 'fay@example.com', 'context' => 'login', 'nonce' => wp_create_nonce('agumail_capture')));
         shopper_path_wc_ajax('agumail_capture', function () {
             do_action('wc_ajax_agumail_capture');
         });

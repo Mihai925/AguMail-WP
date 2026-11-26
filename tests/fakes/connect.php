@@ -37,6 +37,19 @@ if (!function_exists('shortcode_atts')) {
 
 if (!function_exists('register_block_type')) {
     function register_block_type($name, $args = array()) {
+        // A folder holding block.json, as WordPress reads it: the metadata, then $args on top.
+        if (is_file(rtrim($name, '/') . '/block.json')) {
+            $meta = json_decode(file_get_contents(rtrim($name, '/') . '/block.json'), true);
+            $name = $meta['name'];
+            $map  = array('apiVersion' => 'api_version', 'editorScript' => 'editor_script', 'attributes' => 'attributes', 'title' => 'title', 'category' => 'category');
+            $from = array();
+            foreach ($map as $json => $key) {
+                if (isset($meta[$json])) {
+                    $from[$key] = $meta[$json];
+                }
+            }
+            $args = array_merge($from, $args);
+        }
         $GLOBALS['agm']['blocks'][$name] = $args;
         return (object) array_merge(array('name' => $name), $args);
     }

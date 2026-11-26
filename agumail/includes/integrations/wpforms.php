@@ -120,10 +120,10 @@ function agumail_wpforms_settings_content( $panel ) {
  *
  * @param mixed $fields    The submitted fields as WPForms formats them, an array
  *                         (checked before use).
- * @param array $entry     The raw submission.
+ * @param mixed $entry     The raw submission (unused: the formatted fields have it all).
  * @param mixed $form_data The form, an array (checked before use).
  */
-function agumail_wpforms_submit( $fields, $entry = array(), $form_data = array() ) {
+function agumail_wpforms_submit( $fields, $entry = null, $form_data = null ) {
 	try {
 		$settings = is_array( $form_data ) && isset( $form_data['settings'] ) && is_array( $form_data['settings'] ) ? $form_data['settings'] : array();
 		if ( empty( $settings['agumail_enable'] ) || ! empty( $form_data['spam_reason'] ) ) {

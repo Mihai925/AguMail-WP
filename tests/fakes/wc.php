@@ -238,7 +238,11 @@ namespace {
         }
         return isset($GLOBALS['agm']['orders'][(int) $id]) ? $GLOBALS['agm']['orders'][(int) $id] : false;
     }
-    function wc_get_orders($args = array()) { $GLOBALS['agm']['order_queries'][] = $args; return array(); }
+    function wc_get_orders($args = array()) {
+        $GLOBALS['agm']['order_queries'][] = $args;
+        // A fake that holds orders (P4) answers order queries itself.
+        return isset($GLOBALS['agm']['wc_get_orders']) ? call_user_func($GLOBALS['agm']['wc_get_orders'], $args) : array();
+    }
     function wc_get_is_paid_statuses() { return array('processing', 'completed'); }
     function wc_get_order_statuses() {
         return array('wc-pending' => 'Pending payment', 'wc-processing' => 'Processing', 'wc-on-hold' => 'On hold',

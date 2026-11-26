@@ -64,7 +64,7 @@ function agumail_schema_current() {
 }
 
 /**
- * The CREATE TABLE statements for the outbox and carts tables, in dbDelta's format.
+ * The SQL that creates the outbox and carts tables, in the format dbDelta reads.
  */
 function agumail_schema_sql() {
 	global $wpdb;
@@ -123,10 +123,10 @@ function agumail_install() {
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 	}
 	dbDelta( agumail_schema_sql() );
+	agumail_db_changed();
 	foreach ( array( 'agumail_outbox', 'agumail_carts' ) as $table ) {
-		$name = $wpdb->prefix . $table;
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- whether dbDelta just created the table; only the database knows.
-		$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $name ) ) );
+		$name  = $wpdb->prefix . $table;
+		$found = agumail_db_get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $name ) ) );
 		if ( $found !== $name ) {
 			agumail_log( 'error', sprintf( 'Could not create the table %s: %s', $name, $wpdb->last_error ) );
 			return false;
@@ -173,9 +173,8 @@ function agumail_deactivate() {
 function agumail_delete_pending_jobs() {
 	global $wpdb;
 	foreach ( array( 'actionscheduler_actions', 'actionscheduler_groups' ) as $table ) {
-		$name = $wpdb->prefix . $table;
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- whether Action Scheduler's table exists; only the database knows.
-		$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $name ) ) );
+		$name  = $wpdb->prefix . $table;
+		$found = agumail_db_get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $name ) ) );
 		if ( $found !== $name ) {
 			return;
 		}

@@ -64,7 +64,8 @@ function test_uninstall_cleans_every_site_of_a_multisite_network($plugin_dir) {
     expect_same(array('DROP TABLE IF EXISTS wp_agumail_outbox', 'DROP TABLE IF EXISTS wp_agumail_carts',
         'DROP TABLE IF EXISTS wp_2_agumail_outbox', 'DROP TABLE IF EXISTS wp_2_agumail_carts'),
         $wpdb->statements('/^DROP TABLE/'), 'every site\'s tables should be dropped');
-    expect_same(2, count($wpdb->statements('/^DELETE FROM wp_2_options WHERE option_name LIKE/')) + count($wpdb->statements('/^DELETE FROM wp_options WHERE option_name LIKE/')), 'every site\'s options should be swept');
+    // On each site: every agumail_* option and transient, then the per-merchant and per-connect transients by name.
+    expect_same(array(4, 4), array(count($wpdb->statements('/^DELETE FROM wp_options WHERE option_name LIKE/')), count($wpdb->statements('/^DELETE FROM wp_2_options WHERE option_name LIKE/'))), 'every site\'s options should be swept');
     expect_same(array(1, 2), $GLOBALS['agm']['switched'], 'uninstall did not visit every site');
     expect_same(1, get_current_blog_id(), 'uninstall left WordPress on another site');
     expect_same(2, count(array_filter($GLOBALS['agm']['as_unschedule_all'], function ($call) { return $call['group'] === 'agumail'; })), 'every site\'s jobs should be unscheduled');

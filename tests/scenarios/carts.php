@@ -34,7 +34,7 @@ function carts_capture($email, $context = 'checkout', array $extra = array()) {
     $calls++;
     $before = count($GLOBALS['agm']['json']);
     $result = carts_request("capture #$calls " . $email, function () use ($email, $context, $extra) {
-        agm_input(array('wc-ajax' => 'agumail_capture'), array_merge(array('email' => $email, 'context' => $context), $extra));
+        agm_input(array('wc-ajax' => 'agumail_capture'), array_merge(array('email' => $email, 'context' => $context, 'nonce' => wp_create_nonce('agumail_capture')), $extra));
         do_action('wc_ajax_agumail_capture');
     });
     $answers = array_slice($GLOBALS['agm']['json'], $before);
@@ -136,6 +136,17 @@ function test_carts_capture_with_items_creates_the_cart_row_in_one_write_with_no
         'the cart row is wrong'
     );
     expect_that(preg_match('/^[0-9a-f]{32}$/', $row['token']) === 1, 'the cart has no restore token');
+}
+
+function test_carts_capture_without_the_pages_nonce_is_refused_and_records_nothing() {
+    $products = carts_catalogue();
+    WC()->cart->add_line($products['mug'], 1);
+    foreach (array(array('nonce' => 'forged'), array('nonce' => '')) as $extra) {
+        $result = carts_capture('mallory@example.com', 'checkout', $extra);
+        expect_same(false, $result['response']['ok'], 'a capture without the page\'s nonce was answered ok');
+        expect_same(array(), agm_writes('carts', $result['name']), 'a capture without the page\'s nonce wrote a cart');
+        expect_same('', (string) carts_session('agumail_email'), 'a capture without the page\'s nonce kept the email');
+    }
 }
 
 function test_carts_capture_of_a_new_email_updates_the_same_row() {
@@ -1288,6 +1299,7 @@ function test_carts_capture_script_loads_deferred_where_an_email_is_typed($plugi
     expect_same('defer', isset($script['data']['strategy']) ? $script['data']['strategy'] : null, 'the script is not deferred');
     $inline = implode("\n", $script['inline']);
     expect_that(strpos($inline, 'window.agumailCapture') !== false && strpos($inline, 'wc-ajax=agumail_capture') !== false, 'the script is not told where to post: ' . $inline);
+    expect_that(strpos($inline, '"nonce":"' . wp_create_nonce('agumail_capture') . '"') !== false, 'the script is not given the capture nonce: ' . $inline);
 
     agm_sign_in(9, 'bea@example.com');
     expect_same(false, carts_page_has_script('account'), 'a signed-in customer on My Account has no login form to capture');
@@ -1348,7 +1360,7 @@ function browser(options) {
     addEventListener(type, fn, capture) { (listeners[type] = listeners[type] || []).push({ fn, capture }); }
   };
   const window = {
-    agumailCapture: { endpoint: '/?wc-ajax=agumail_capture' },
+    agumailCapture: { endpoint: '/?wc-ajax=agumail_capture', nonce: 'n0nce' },
     document,
     navigator: {
       sendBeacon(url, body) { beacons.push({ url, body }); return true; }
@@ -1392,7 +1404,7 @@ function body(post) {
   // Classic checkout and CheckoutWC: #billing_email.
   b.fire('focusout', b.input('billing_email', 'email', '  Ada@Example.com '));
   assert.strictEqual(b.posts.length, 1, 'leaving #billing_email did not post');
-  assert.deepStrictEqual(body(b.posts[0]), { email: 'ada@example.com', context: 'checkout' });
+  assert.deepStrictEqual(body(b.posts[0]), { email: 'ada@example.com', context: 'checkout', nonce: 'n0nce' });
   assert.strictEqual(b.posts[0].url, '/?wc-ajax=agumail_capture');
   assert.strictEqual(b.posts[0].init.method, 'POST');
   assert.strictEqual(b.posts[0].init.keepalive, true, 'the post does not survive the page moving on');
@@ -1413,20 +1425,20 @@ function body(post) {
   const blockCheckout = b.node({ className: 'wp-block-woocommerce-checkout wc-block-checkout is-large' });
   const contact = b.node({ id: 'contact-fields', className: 'wc-block-checkout__contact-fields' }, blockCheckout);
   b.fire('focusout', b.input('email', 'email', 'bea@example.com', b.node({ className: 'wc-block-components-address-form' }, contact)));
-  assert.deepStrictEqual(body(b.posts[1]), { email: 'bea@example.com', context: 'checkout' });
+  assert.deepStrictEqual(body(b.posts[1]), { email: 'bea@example.com', context: 'checkout', nonce: 'n0nce' });
   // Another email input in the contact step (a gift recipient, say) is not the shopper's.
   b.fire('change', b.input('gift-recipient-email', 'email', 'cy@example.com', contact));
   assert.strictEqual(b.posts.length, 2, 'an email input other than #email in #contact-fields was posted');
   b.fire('focusout', b.input('email', 'email', 'cy@example.com', b.node({ className: 'wc-block-components-address-form' }, contact)));
-  assert.deepStrictEqual(body(b.posts[2]), { email: 'cy@example.com', context: 'checkout' });
+  assert.deepStrictEqual(body(b.posts[2]), { email: 'cy@example.com', context: 'checkout', nonce: 'n0nce' });
 
   // My Account: #username (login) and #reg_email (register).
   b.fire('focusout', b.input('username', 'text', 'dee'));
   assert.strictEqual(b.posts.length, 3, 'a plain username was posted');
   b.fire('focusout', b.input('username', 'text', 'dee@example.com'));
-  assert.deepStrictEqual(body(b.posts[3]), { email: 'dee@example.com', context: 'login' });
+  assert.deepStrictEqual(body(b.posts[3]), { email: 'dee@example.com', context: 'login', nonce: 'n0nce' });
   b.fire('focusout', b.input('reg_email', 'email', 'eve@example.com'));
-  assert.deepStrictEqual(body(b.posts[4]), { email: 'eve@example.com', context: 'register' });
+  assert.deepStrictEqual(body(b.posts[4]), { email: 'eve@example.com', context: 'register', nonce: 'n0nce' });
 
   // Anything else is left alone: other fields, a newsletter box outside checkout, the checkbox.
   b.fire('focusout', b.input('billing_first_name', 'text', 'fay@example.com'));
@@ -1453,7 +1465,7 @@ function body(post) {
   assert.strictEqual(leaving.beacons.length, 1, 'the unsent email was not sent when the page was hidden');
   assert.strictEqual(leaving.posts.length, 0, 'a hidden page should send a beacon, not a fetch');
   const beaconBody = leaving.beacons[0].body;
-  assert.strictEqual(beaconBody instanceof Blob ? await beaconBody.text() : String(beaconBody), 'email=jo%40example.com&context=checkout');
+  assert.strictEqual(beaconBody instanceof Blob ? await beaconBody.text() : String(beaconBody), 'email=jo%40example.com&context=checkout&nonce=n0nce');
   leaving.fire('visibilitychange', leaving.document);
   leaving.fire('focusout', typing);
   assert.strictEqual(leaving.beacons.length + leaving.posts.length, 1, 'the email went twice');
@@ -1490,7 +1502,7 @@ function body(post) {
   assert.strictEqual(old.beacons[0].url, '/?wc-ajax=agumail_capture');
   const sent = old.beacons[0].body;
   const text = typeof sent === 'string' ? sent : (sent instanceof Blob ? await sent.text() : String(sent));
-  assert.strictEqual(text, 'email=ada%40example.com&context=checkout');
+  assert.strictEqual(text, 'email=ada%40example.com&context=checkout&nonce=n0nce');
   if (sent instanceof Blob) assert.ok(/application\/x-www-form-urlencoded/.test(sent.type), 'the beacon is not a form post');
 
   // No endpoint: the script stays out of the way.

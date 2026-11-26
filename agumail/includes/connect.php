@@ -1115,7 +1115,7 @@ function agumail_connect_render_connected( array $connection ) {
 	$moved = agumail_connect_address_change();
 	echo '<tr><th scope="row">' . esc_html__( 'Status', 'agumail' ) . '</th><td>';
 	if ( $moved ) {
-		echo '<div class="agumail-problem is-warning"><strong>' . esc_html(
+		echo '<div class="agumail-problem is-warning"><span class="screen-reader-text">' . esc_html( agumail_admin_state_word( 'warning' ) ) . ' </span><strong>' . esc_html(
 			sprintf(
 				$site
 				/* translators: 1: the address the site connected from, 2: this site's address */
@@ -1127,20 +1127,20 @@ function agumail_connect_render_connected( array $connection ) {
 			)
 		) . '</strong> ' . esc_html__( 'Sending is paused.', 'agumail' ) . '</div>';
 	} elseif ( 'disconnected' === $status ) {
-		echo '<div class="agumail-problem is-warning"><strong>' . esc_html__( 'Disconnected in AguMail.', 'agumail' ) . '</strong> '
+		echo '<div class="agumail-problem is-warning"><span class="screen-reader-text">' . esc_html( agumail_admin_state_word( 'warning' ) ) . ' </span><strong>' . esc_html__( 'Disconnected in AguMail.', 'agumail' ) . '</strong> '
 			. esc_html__( 'Sending is paused until you reconnect.', 'agumail' ) . '</div>';
 	} elseif ( 'error' === $status ) {
-		echo '<div class="agumail-problem is-error"><strong>' . esc_html( $site ? __( 'AguMail refused this site.', 'agumail' ) : __( 'AguMail refused this store.', 'agumail' ) ) . '</strong> ' . esc_html( $connection['error'] );
+		echo '<div class="agumail-problem is-error"><span class="screen-reader-text">' . esc_html( agumail_admin_state_word( 'error' ) ) . ' </span><strong>' . esc_html( $site ? __( 'AguMail refused this site.', 'agumail' ) : __( 'AguMail refused this store.', 'agumail' ) ) . '</strong> ' . esc_html( $connection['error'] );
 		if ( 401 === (int) $connection['errorCode'] ) {
 			echo ' ' . esc_html__( 'Reconnect to continue.', 'agumail' );
 		}
 		echo '</div>';
 	} else {
-		echo '<span class="agumail-badge is-success">' . esc_html__( 'Connected', 'agumail' ) . '</span>';
+		echo '<span class="agumail-badge is-success"><span class="screen-reader-text">' . esc_html( agumail_admin_state_word( 'status' ) ) . ' </span>' . esc_html__( 'Connected', 'agumail' ) . '</span>';
 	}
 	echo '</td></tr>';
 	if ( $since > 0 ) {
-		echo '<tr><th scope="row">' . esc_html__( 'Connected since', 'agumail' ) . '</th><td>' . esc_html( wp_date( get_option( 'date_format', 'Y-m-d' ), $since ) ) . '</td></tr>';
+		echo '<tr><th scope="row">' . esc_html__( 'Connected since', 'agumail' ) . '</th><td>' . esc_html( agumail_date( get_option( 'date_format', 'Y-m-d' ), $since ) ) . '</td></tr>';
 	}
 	echo '</tbody></table>';
 
@@ -1177,7 +1177,7 @@ function agumail_connect_render_store_state() {
 	$platform = agumail_connection_platform();
 	if ( ! agumail_woocommerce_active() ) {
 		if ( 'woocommerce' === $platform ) {
-			echo '<div class="agumail-problem is-warning agumail-callout"><p><strong>' . esc_html__( 'WooCommerce is not active.', 'agumail' ) . '</strong> '
+			echo '<div class="agumail-problem is-warning agumail-callout"><p><span class="screen-reader-text">' . esc_html( agumail_admin_state_word( 'warning' ) ) . ' </span><strong>' . esc_html__( 'WooCommerce is not active.', 'agumail' ) . '</strong> '
 				. esc_html__( 'Your forms and signups keep going to AguMail. Orders and products wait here, and go once WooCommerce is back.', 'agumail' ) . '</p></div>';
 		}
 		return;
@@ -1204,7 +1204,7 @@ function agumail_connect_render_store_state() {
 		return;
 	}
 	if ( agumail_store_sync_held() ) {
-		echo '<div class="agumail-problem is-warning agumail-callout"><p><strong>' . esc_html__( 'Store sync is paused: your AguMail plan does not include it.', 'agumail' ) . '</strong> '
+		echo '<div class="agumail-problem is-warning agumail-callout"><p><span class="screen-reader-text">' . esc_html( agumail_admin_state_word( 'warning' ) ) . ' </span><strong>' . esc_html__( 'Store sync is paused: your AguMail plan does not include it.', 'agumail' ) . '</strong> '
 			. esc_html__( 'Forms, signups and checkout subscribers keep going to AguMail. Orders and products wait here and go within the hour after you move to a Commerce plan, with nothing to reconnect. Abandoned carts are not kept meanwhile.', 'agumail' ) . '</p>';
 		echo '<div class="agumail-actions">';
 		agumail_connect_app_button( agumail_admin_app_link( '/pricing', 'connect-store-held' ), __( 'See plans', 'agumail' ) );

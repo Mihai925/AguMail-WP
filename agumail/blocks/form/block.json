@@ -1,0 +1,23 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "agumail/form",
+	"title": "AguMail form",
+	"category": "widgets",
+	"icon": "email-alt",
+	"description": "A signup form from your AguMail account, in the page or as a popup.",
+	"keywords": [ "signup", "newsletter", "subscribe", "email" ],
+	"textdomain": "agumail",
+	"supports": {
+		"html": false
+	},
+	"attributes": {
+		"slug": { "type": "string", "default": "" },
+		"mode": { "type": "string", "default": "inline" },
+		"delay": { "type": "number" },
+		"scroll": { "type": "number" },
+		"exitIntent": { "type": "boolean", "default": false },
+		"frequencyDays": { "type": "number" }
+	},
+	"editorScript": "agumail-form-block"
+}

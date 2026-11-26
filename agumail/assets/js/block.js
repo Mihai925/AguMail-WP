@@ -14,21 +14,15 @@
 		return;
 	}
 
-	var el = wp.element.createElement;
-	var Fragment = wp.element.Fragment;
-	var useState = wp.element.useState;
-	var useEffect = wp.element.useEffect;
+	var element = wp.element;
+	var components = wp.components;
+	var el = element.createElement;
+	var useState = element.useState;
+	var useEffect = element.useEffect;
 	var __ = wp.i18n && wp.i18n.__ ? wp.i18n.__ : function (text) { return text; };
 	var sprintf = wp.i18n && wp.i18n.sprintf ? wp.i18n.sprintf : function (text, value) { return text.replace('%s', value); };
 	var editor = wp.blockEditor || wp.editor;
-	var InspectorControls = editor.InspectorControls;
 	var useBlockProps = editor.useBlockProps;
-	var PanelBody = wp.components.PanelBody;
-	var Placeholder = wp.components.Placeholder;
-	var Spinner = wp.components.Spinner;
-	var SelectControl = wp.components.SelectControl;
-	var TextControl = wp.components.TextControl;
-	var ToggleControl = wp.components.ToggleControl;
 
 	// One request per editor session, shared by every AguMail block on the page.
 	var formsRequest = null;
@@ -64,7 +58,7 @@
 		}));
 	}
 
-	function Edit(props) {
+	function editForm(props) {
 		var attributes = props.attributes;
 		var setAttributes = props.setAttributes;
 		var state = useState(null);
@@ -86,7 +80,7 @@
 		var chosen = forms.filter(function (form) { return form.slug === attributes.slug; })[0];
 		var popup = attributes.mode === 'popup';
 
-		var picker = el(SelectControl, {
+		var picker = el(components.SelectControl, {
 			__nextHasNoMarginBottom: true,
 			__next40pxDefaultSize: true,
 			label: __('Form', 'agumail'),
@@ -95,10 +89,10 @@
 			onChange: function (slug) { setAttributes({ slug: slug }); }
 		});
 
-		var settings = el(InspectorControls, null,
-			el(PanelBody, { title: __('Form settings', 'agumail'), initialOpen: true },
+		var settings = el(editor.InspectorControls, null,
+			el(components.PanelBody, { title: __('Form settings', 'agumail'), initialOpen: true },
 				picker,
-				el(SelectControl, {
+				el(components.SelectControl, {
 					__nextHasNoMarginBottom: true,
 					__next40pxDefaultSize: true,
 					label: __('Show it', 'agumail'),
@@ -109,8 +103,8 @@
 					],
 					onChange: function (mode) { setAttributes({ mode: mode }); }
 				}),
-				popup ? el(Fragment, null,
-					el(TextControl, {
+				popup ? el(element.Fragment, null,
+					el(components.TextControl, {
 						__nextHasNoMarginBottom: true,
 						__next40pxDefaultSize: true,
 						label: __('Delay in seconds', 'agumail'),
@@ -120,7 +114,7 @@
 						help: __('Leave empty to show it after a few seconds.', 'agumail'),
 						onChange: function (value) { setAttributes({ delay: toNumber(value, 0, 3600) }); }
 					}),
-					el(TextControl, {
+					el(components.TextControl, {
 						__nextHasNoMarginBottom: true,
 						__next40pxDefaultSize: true,
 						label: __('Scroll depth in %', 'agumail'),
@@ -130,7 +124,7 @@
 						value: fieldValue(attributes.scroll),
 						onChange: function (value) { setAttributes({ scroll: toNumber(value, 0, 100) }); }
 					}),
-					el(ToggleControl, {
+					el(components.ToggleControl, {
 						__nextHasNoMarginBottom: true,
 						__next40pxDefaultSize: true,
 						label: __('Show when the visitor moves to leave', 'agumail'),
@@ -138,7 +132,7 @@
 						checked: !!attributes.exitIntent,
 						onChange: function (checked) { setAttributes({ exitIntent: !!checked }); }
 					}),
-					el(TextControl, {
+					el(components.TextControl, {
 						__nextHasNoMarginBottom: true,
 						__next40pxDefaultSize: true,
 						label: __('Show again after (days)', 'agumail'),
@@ -155,9 +149,9 @@
 
 		var body;
 		if (!data) {
-			body = el(Placeholder, { icon: 'email-alt', label: __('AguMail form', 'agumail') }, el(Spinner, null));
+			body = el(components.Placeholder, { icon: 'email-alt', label: __('AguMail form', 'agumail') }, el(components.Spinner, null));
 		} else if (!forms.length) {
-			body = el(Placeholder, {
+			body = el(components.Placeholder, {
 				icon: 'email-alt',
 				label: __('AguMail form', 'agumail'),
 				instructions: data.failed
@@ -165,7 +159,7 @@
 					: __('No published forms yet. Publish a form in AguMail, then press Refresh under WooCommerce > AguMail.', 'agumail')
 			});
 		} else {
-			body = el(Placeholder, {
+			body = el(components.Placeholder, {
 				icon: 'email-alt',
 				label: __('AguMail form', 'agumail'),
 				instructions: chosen
@@ -193,7 +187,7 @@
 			exitIntent: { type: 'boolean', default: false },
 			frequencyDays: { type: 'number' }
 		},
-		edit: Edit,
+		edit: editForm,
 		save: function () { return null; }
 	});
 })(window.wp);

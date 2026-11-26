@@ -24,7 +24,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 define( 'AGUMAIL_ACTIVATION_REDIRECT', 'agumail_activation_redirect' );
 
-add_action( 'init', 'agumail_onboarding_register_admin', 10, 0 );
+add_action( 'admin_init', 'agumail_onboarding_register_admin', 10, 0 );
 add_action( 'admin_init', 'agumail_onboarding_redirect', 5, 0 );
 add_filter( 'plugin_action_links_' . plugin_basename( AGUMAIL_FILE ), 'agumail_onboarding_action_links' );
 add_filter( 'plugin_row_meta', 'agumail_onboarding_row_meta', 10, 2 );
@@ -164,10 +164,13 @@ function agumail_onboarding_notice() {
 		$text  = esc_html__( 'Grow your email list with AguMail: signup forms, popups and the forms you already have, with welcome emails that send themselves.', 'agumail' );
 		$start = '<a class="button button-primary" href="' . esc_url( agumail_admin_page_url() ) . '">' . esc_html__( 'Get started', 'agumail' ) . '</a> ';
 	}
-	echo '<div class="notice notice-info agumail-connect-notice"><p>' . $text . '</p><p>' // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped above.
+	// In a .wrap of its own with no margin, as admin output should be; WordPress
+	// still moves the notice up to where every page shows its notices.
+	echo '<div class="wrap agumail-notice-wrap" style="margin:0">'
+		. '<div class="notice notice-info agumail-connect-notice"><p>' . $text . '</p><p>' // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped above.
 		. $start . $signup // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built from escaped parts above.
 		. '<a class="agumail-connect-notice-dismiss" href="' . esc_url( agumail_admin_action_url( 'dismiss_connect_notice' ) ) . '">' . esc_html__( 'Dismiss', 'agumail' ) . '</a>'
-		. '</p></div>';
+		. '</p></div></div>';
 }
 
 /** Admin action: the notice stays away for good, and the merchant goes back to the page they were on. */

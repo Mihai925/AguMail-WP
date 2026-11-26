@@ -630,8 +630,7 @@ function agumail_customers_user_sent( $key, $row ) {
  */
 function agumail_customers_accounts_after( $after, $limit ) {
 	global $wpdb;
-	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a keyset page of the store's customer accounts for the daily check, read once; WP_User_Query cannot page by id.
-	$rows = $wpdb->get_results(
+	$rows = agumail_db_get_results(
 		$wpdb->prepare(
 			"SELECT ID, user_email FROM {$wpdb->users} WHERE ID > %d AND user_email <> ''"
 			. " AND EXISTS (SELECT 1 FROM {$wpdb->usermeta} cm WHERE cm.user_id = {$wpdb->users}.ID AND cm.meta_key = %s"

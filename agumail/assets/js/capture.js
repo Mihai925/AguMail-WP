@@ -22,7 +22,8 @@
  * runs it) is told who this is, with the address exactly as the server signed
  * it: window.agumail.identify(answer.email, answer.sig).
  *
- * Plain ES5, no dependencies. window.agumailCapture.endpoint is set by the
+ * Plain ES5, no dependencies. window.agumailCapture.endpoint, and the nonce
+ * the call carries (window.agumailCapture.nonce), are set by the
  * plugin next to the script.
  */
 (function (window, document) {
@@ -33,7 +34,7 @@
     return;
   }
 
-  var EMAIL = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
+  var emailPattern = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
   var lastSent = '';
 
   function hasClass(node, name) {
@@ -104,7 +105,8 @@
 
   /** Posts the email in the background; a page that is going away sends a beacon, which needs no answer. */
   function send(email, context, leaving) {
-    var body = 'email=' + encodeURIComponent(email) + '&context=' + encodeURIComponent(context);
+    var body = 'email=' + encodeURIComponent(email) + '&context=' + encodeURIComponent(context)
+      + '&nonce=' + encodeURIComponent(config.nonce || '');
     if (leaving && beacon(body)) {
       return;
     }
@@ -139,7 +141,7 @@
       return;
     }
     var email = String(field.value || '').replace(/^\s+|\s+$/g, '').toLowerCase();
-    if (email === lastSent || !EMAIL.test(email)) {
+    if (email === lastSent || !emailPattern.test(email)) {
       return;
     }
     lastSent = email;

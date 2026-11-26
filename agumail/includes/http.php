@@ -19,7 +19,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Background work waits up to 15 seconds for AguMail; a merchant waiting on a
+// wp-admin page (connecting, the settings page's check) waits at most 8. The
+// drain passes its own, longer, budget.
 define( 'AGUMAIL_HTTP_TIMEOUT', 15 );
+define( 'AGUMAIL_HTTP_ADMIN_TIMEOUT', 8 );
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Background context.
@@ -34,6 +38,18 @@ function agumail_background_depth( $change = 0 ) {
 	static $depth = 0;
 	$depth        = max( 0, $depth + (int) $change );
 	return $depth;
+}
+
+/**
+ * Seconds to wait for AguMail when the caller sets none: short while a
+ * merchant waits on a wp-admin page or form post, longer for background
+ * work (cron, Action Scheduler, admin-ajax, WP-CLI).
+ *
+ * @return int
+ */
+function agumail_http_default_timeout() {
+	$interactive = is_admin() && ! wp_doing_ajax() && ! wp_doing_cron() && ! ( defined( 'WP_CLI' ) && WP_CLI );
+	return $interactive ? AGUMAIL_HTTP_ADMIN_TIMEOUT : AGUMAIL_HTTP_TIMEOUT;
 }
 
 /**
@@ -144,7 +160,7 @@ function agumail_api_request( $method, $path, $body = null, array $options = arr
 
 	$args = array(
 		'method'      => $method,
-		'timeout'     => isset( $options['timeout'] ) ? (int) $options['timeout'] : AGUMAIL_HTTP_TIMEOUT,
+		'timeout'     => isset( $options['timeout'] ) ? (int) $options['timeout'] : agumail_http_default_timeout(),
 		'redirection' => 0,
 		'headers'     => array(
 			'Accept'     => 'application/json',

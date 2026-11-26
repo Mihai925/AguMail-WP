@@ -491,8 +491,20 @@ function agumail_cart_before_session_load() {
 		return;
 	}
 	$state            = &agumail_cart_request_state();
-	$state['merging'] = null === $session->get( 'cart', null )
+	$state['merging'] = null === agumail_cart_session_value( $session, 'cart' )
 		|| (bool) get_user_meta( get_current_user_id(), '_woocommerce_load_saved_cart_after_login', true );
+}
+
+/**
+ * A value WooCommerce keeps in the shopper's session, or null when it holds
+ * none. Whatever was stored comes back, so it may be of any type.
+ *
+ * @param WC_Session $session The shopper's session.
+ * @param string     $key     The value's key.
+ * @return mixed
+ */
+function agumail_cart_session_value( $session, $key ) {
+	return $session->get( $key, null );
 }
 
 /** A saved cart merged into the session counts as a change to the cart. */
@@ -626,17 +638,24 @@ function agumail_cart_flush() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Capture: POST ?wc-ajax=agumail_capture {email, context}. No nonce, because the
-// checkout page may be served from a page cache. It answers {ok: true} whatever
-// happened, and adds the identify signature and the address it signed
-// ({sig, email}) when it kept the email and website tracking is on.
+// Capture: POST ?wc-ajax=agumail_capture {email, context, nonce}. The nonce is
+// the page's (agumail_capture), and for a guest WooCommerce ties it to their
+// session; the pages that load the script (cart, checkout, My Account) are
+// never served from a page cache, as WooCommerce keeps them out of one. A bad
+// nonce is refused with a 403 and records nothing. Past it, the call is
+// limited per session and per IP address (agumail_capture_email()), answers
+// {ok: true} whatever happened, and adds the identify signature and the
+// address it signed ({sig, email}) when it kept the email and website
+// tracking is on.
 // ─────────────────────────────────────────────────────────────────────────────
 
 add_action( 'wc_ajax_' . AGUMAIL_CAPTURE_ACTION, 'agumail_capture_request' );
 
 /** Answers the capture call: keeps the email and, while website tracking is on, hands back the identify signature. */
 function agumail_capture_request() {
-	// No nonce, see above: the call only records the shopper's own email.
+	if ( ! wp_verify_nonce( agumail_posted( 'nonce' ), AGUMAIL_CAPTURE_ACTION ) ) {
+		wp_send_json( array( 'ok' => false ), 403 );
+	}
 	$email  = agumail_normalize_email( agumail_posted( 'email', 'email' ) );
 	$answer = array( 'ok' => true );
 	if ( '' !== $email && agumail_capture_email( $email ) ) {
@@ -793,7 +812,16 @@ function agumail_enqueue_capture_script() {
 	}
 	wp_enqueue_script( 'agumail-capture', plugins_url( 'assets/js/capture.js', AGUMAIL_FILE ), array(), AGUMAIL_VERSION, true );
 	wp_script_add_data( 'agumail-capture', 'strategy', 'defer' );
-	wp_add_inline_script( 'agumail-capture', 'window.agumailCapture = ' . wp_json_encode( array( 'endpoint' => agumail_capture_url() ) ) . ';', 'before' );
+	wp_add_inline_script(
+		'agumail-capture',
+		'window.agumailCapture = ' . wp_json_encode(
+			array(
+				'endpoint' => agumail_capture_url(),
+				'nonce'    => wp_create_nonce( AGUMAIL_CAPTURE_ACTION ),
+			)
+		) . ';',
+		'before'
+	);
 }
 
 /** Checkout and cart, and My Account while signed out, where the login and register forms are. Not the thank-you page. */

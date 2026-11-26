@@ -156,12 +156,12 @@ function agumail_cf7_render_panel( $contact_form ) {
  *                            hands it over (checked before use).
  */
 function agumail_cf7_save( $contact_form ) {
-	// phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified by Contact Form 7 before it saves the form.
-	if ( ! isset( $_POST['agumail-signup'] ) || ! is_array( $_POST['agumail-signup'] ) || ! is_object( $contact_form ) || ! method_exists( $contact_form, 'set_properties' ) ) {
+	// Contact Form 7 verified the nonce before it saves the form.
+	$raw = agumail_posted_raw( 'agumail-signup' );
+	if ( ! is_array( $raw ) || ! is_object( $contact_form ) || ! method_exists( $contact_form, 'set_properties' ) ) {
 		return;
 	}
-	// phpcs:ignore WordPress.Security.NonceVerification.Missing -- as above.
-	$posted = map_deep( wp_unslash( $_POST['agumail-signup'] ), 'sanitize_text_field' );
+	$posted = map_deep( $raw, 'sanitize_text_field' );
 	$fields = array();
 	foreach ( array_keys( agumail_cf7_parts() ) as $part ) {
 		$name = isset( $posted['fields'][ $part ] ) && is_string( $posted['fields'][ $part ] ) ? trim( $posted['fields'][ $part ] ) : '';

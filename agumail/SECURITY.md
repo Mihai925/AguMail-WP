@@ -1,5 +1,7 @@
 # Security Policy
 
+Security Contact: support@agumail.com
+
 ## Reporting a vulnerability
 
 Please report security issues in the AguMail plugin privately by email to

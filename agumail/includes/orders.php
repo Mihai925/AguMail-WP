@@ -69,8 +69,19 @@ function agumail_order_capture_campaign() {
 	$expires = time() + AGUMAIL_CID_DAYS * DAY_IN_SECONDS;
 	if ( function_exists( 'wc_setcookie' ) ) {
 		wc_setcookie( AGUMAIL_CID_COOKIE, $cid, $expires, is_ssl(), true );
-	} elseif ( ! headers_sent() ) {
-		setcookie( AGUMAIL_CID_COOKIE, $cid, $expires, defined( 'COOKIEPATH' ) && COOKIEPATH ? COOKIEPATH : '/', COOKIE_DOMAIN, is_ssl(), true );
+	} else {
+		agumail_setcookie(
+			AGUMAIL_CID_COOKIE,
+			$cid,
+			array(
+				'expires'  => $expires,
+				'path'     => defined( 'COOKIEPATH' ) && COOKIEPATH ? COOKIEPATH : '/',
+				'domain'   => COOKIE_DOMAIN ? (string) COOKIE_DOMAIN : '',
+				'secure'   => is_ssl(),
+				'httponly' => true,
+			),
+			'marketing'
+		);
 	}
 	$_COOKIE[ AGUMAIL_CID_COOKIE ] = $cid;
 }

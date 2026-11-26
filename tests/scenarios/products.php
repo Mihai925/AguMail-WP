@@ -358,3 +358,56 @@ function test_products_renaming_a_category_queues_the_products_filed_there() {
     agm_drain();
     expect_same(array('Cups'), products_last_sent(11)['categories'], 'the new category name was not sent');
 }
+
+function test_products_a_category_renamed_after_a_delete_keeps_the_deleted_record() {
+    $products = products_catalogue();
+    $GLOBALS['agm']['terms'][11]['product_cat'] = array((object) array('term_id' => 5, 'name' => 'Mugs'));
+    $GLOBALS['agm']['terms'][20]['product_cat'] = array((object) array('term_id' => 5, 'name' => 'Mugs'));
+    agm_request('admin: delete the tee for good', 'admin', function () use ($products) {
+        agm_delete_product($products['tee']);
+    });
+    $deleted = agm_outbox('product')[0];
+    // The term relationship outlives the product here, as it can when a hook runs between the two deletes.
+    $result = agm_request('admin: rename Mugs to Cups', 'admin', function () {
+        do_action('edited_product_cat', 5, 5, array('name' => 'Cups'));
+    });
+    expect_same(array('product:11'), array_column($result['writes'], 'name'), 'only the product still there should be written');
+    $rows = array();
+    foreach (agm_outbox('product') as $row) {
+        $rows[$row['object_key']] = $row;
+    }
+    expect_same($deleted, $rows['20'], 'the row holding the deleted product\'s record was changed');
+    expect_same(null, $rows['11']['payload'], 'the product still there was not queued to be built at send time');
+    agm_drain();
+    expect_same('archived', products_last_sent(20)['status'], 'the deleted product was not sent archived');
+}
+
+function test_products_the_real_store_queues_a_saved_product_in_one_statement_without_a_lookup() {
+    global $wpdb;
+    agumail_set_store(new Agumail_Store());
+    $wpdb->queries = array();
+    expect_that(agumail_product_queue(11), 'the product was not queued');
+    $sql = $wpdb->statements();
+    expect_same(1, count($sql), 'queueing a product should be one statement: ' . implode(' | ', $sql));
+    expect_that(strpos($sql[0], "INSERT INTO wp_agumail_outbox") === 0 && strpos($sql[0], "VALUES ('product', '11', NULL, 1, 0, 'pending'") !== false, 'wrong upsert: ' . $sql[0]);
+    expect_that(strpos($sql[0], 'ON DUPLICATE KEY UPDATE `version` = IF(`payload` IS NULL, `version` + 1, `version`), `status` = IF(`payload` IS NULL, \'pending\', `status`)') !== false,
+        'the upsert would change a row holding a deleted product\'s record: ' . $sql[0]);
+    expect_that(strpos($sql[0], '`payload` =') === false && strpos($sql[0], '`attempts` =') === false, 'the upsert must leave the payload and attempts alone: ' . $sql[0]);
+}
+
+function test_products_the_real_store_queues_a_renamed_category_in_batches_of_200() {
+    global $wpdb;
+    for ($id = 1001; $id <= 1450; $id++) {
+        $GLOBALS['agm']['terms'][$id]['product_cat'] = array((object) array('term_id' => 5, 'name' => 'Mugs'));
+    }
+    agumail_set_store(new Agumail_Store());
+    $wpdb->queries = array();
+    do_action('edited_product_cat', 5, 5, array('name' => 'Cups'));
+    $sql = $wpdb->statements();
+    expect_same(3, count($sql), '450 products should take three statements: ' . count($sql));
+    expect_same(array(200, 200, 50), array_map(function ($statement) { return substr_count($statement, "('product', '"); }, $sql), 'wrong batch sizes');
+    expect_that(strpos($sql[0], "('product', '1001', NULL, 1, 0, 'pending'") !== false && strpos($sql[2], "('product', '1450', NULL, 1, 0, 'pending'") !== false, 'a product was left out');
+    foreach ($sql as $statement) {
+        expect_that(strpos($statement, 'IF(`payload` IS NULL, `version` + 1, `version`)') !== false, 'a batch would overwrite a deleted product\'s record: ' . substr($statement, -300));
+    }
+}

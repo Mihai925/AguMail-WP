@@ -48,6 +48,11 @@ function agumail_clamp( $value, $max ) {
 	if ( strlen( $value ) <= $max ) {
 		return $value;
 	}
+	// Text with no character outside the Basic Multilingual Plane (no emoji):
+	// one UTF-16 unit per character, so the cut is a plain character count.
+	if ( 0 === preg_match( '/[\x{10000}-\x{10FFFF}]/u', $value ) ) {
+		return rtrim( mb_substr( $value, 0, $max, 'UTF-8' ) );
+	}
 	if ( ! preg_match_all( '/./su', $value, $characters ) ) {
 		return rtrim( substr( $value, 0, $max ) );
 	}

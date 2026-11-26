@@ -85,16 +85,17 @@ function agumail_render_checkout_optin() {
  * not an answer.
  */
 function agumail_checkout_optin_ticked_on_screen() {
-	// phpcs:disable WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput -- WooCommerce checks the order review nonce; two fields are read, each only as whether it is non-empty, and nothing is saved or printed.
-	$shown  = agumail_posted_flag( 'agumail_optin_shown' );
-	$ticked = agumail_posted_flag( 'agumail_optin' );
-	if ( isset( $_POST['post_data'] ) && is_string( $_POST['post_data'] ) ) {
+	// WooCommerce checks the order review nonce; two fields are read, each only
+	// as whether it is non-empty, and nothing is saved or printed.
+	$shown     = agumail_posted_flag( 'agumail_optin_shown' );
+	$ticked    = agumail_posted_flag( 'agumail_optin' );
+	$post_data = agumail_posted_raw( 'post_data' );
+	if ( is_string( $post_data ) ) {
 		$form = array();
-		parse_str( wp_unslash( $_POST['post_data'] ), $form );
+		parse_str( $post_data, $form );
 		$shown  = ! empty( $form['agumail_optin_shown'] );
 		$ticked = ! empty( $form['agumail_optin'] );
 	}
-	// phpcs:enable
 	return $shown ? $ticked : agumail_checkout_optin_starts_ticked();
 }
 
@@ -178,9 +179,20 @@ function agumail_block_optin_default( $value, $group = '', $data_object = null )
 	return $data_object->meta_exists( '_wc_other/' . AGUMAIL_CHECKOUT_FIELD ) ? $value : true;
 }
 
-/** WooCommerce 10.9 and later: the block checkout creates the order only when the shopper places it. */
+/**
+ * WooCommerce 10.9 and later: the block checkout creates the order only when
+ * the shopper places it. Told by the method 10.9 added, looked up on the
+ * running WooCommerce.
+ *
+ * @return bool
+ */
 function agumail_block_checkout_defers_order() {
-	return method_exists( 'Automattic\WooCommerce\StoreApi\Schemas\V1\CheckoutSchema', 'get_draft_response' );
+	$schema = 'Automattic\WooCommerce\StoreApi\Schemas\V1\CheckoutSchema';
+	if ( ! class_exists( $schema ) ) {
+		return false;
+	}
+	$class = new ReflectionClass( $schema );
+	return $class->hasMethod( 'get_draft_response' );
 }
 
 /**

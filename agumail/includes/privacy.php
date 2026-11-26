@@ -83,8 +83,7 @@ function agumail_privacy_carts( $email, $page = 1 ) {
 	if ( '' === $email || ! agumail_ready() ) {
 		return array();
 	}
-	$carts = agumail_store()->carts_by_email( $email, array(), $page * AGUMAIL_PRIVACY_PAGE );
-	return array_slice( $carts, ( $page - 1 ) * AGUMAIL_PRIVACY_PAGE, AGUMAIL_PRIVACY_PAGE );
+	return agumail_store()->carts_by_email( $email, array(), AGUMAIL_PRIVACY_PAGE, ( $page - 1 ) * AGUMAIL_PRIVACY_PAGE );
 }
 
 /**

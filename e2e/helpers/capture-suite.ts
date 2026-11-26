@@ -42,9 +42,10 @@ async function typeEmailAndLeave(page: Page, checkout: CheckoutType, email: stri
   expect(response.status()).toBe(200);
   const body = (await response.json()) as { ok: boolean; sig?: string; email?: string };
   expect(body.ok).toBe(true);
-  // Posted as the email only: the checkbox is never read before the order is submitted.
+  // Posted as the email only, with the page's nonce: the checkbox is never read before the order is submitted.
   const posted = new URLSearchParams(response.request().postData() ?? '');
-  expect([...posted.keys()].sort()).toEqual(['context', 'email']);
+  expect([...posted.keys()].sort()).toEqual(['context', 'email', 'nonce']);
+  expect(posted.get('nonce')).toMatch(/^[0-9a-f]{10}$/);
   expect(posted.get('email')).toBe(email.toLowerCase());
   return body;
 }

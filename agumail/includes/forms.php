@@ -239,30 +239,10 @@ function agumail_forms_register_block() {
 	if ( function_exists( 'wp_set_script_translations' ) ) {
 		wp_set_script_translations( AGUMAIL_FORM_BLOCK_HANDLE, 'agumail' );
 	}
+	// The block's definition is its block.json; the server adds how it renders.
 	register_block_type(
-		'agumail/form',
-		array(
-			'api_version'     => 3,
-			'editor_script'   => AGUMAIL_FORM_BLOCK_HANDLE,
-			'render_callback' => 'agumail_form_block_render',
-			'attributes'      => array(
-				'slug'          => array(
-					'type'    => 'string',
-					'default' => '',
-				),
-				'mode'          => array(
-					'type'    => 'string',
-					'default' => 'inline',
-				),
-				'delay'         => array( 'type' => 'number' ),
-				'scroll'        => array( 'type' => 'number' ),
-				'exitIntent'    => array(
-					'type'    => 'boolean',
-					'default' => false,
-				),
-				'frequencyDays' => array( 'type' => 'number' ),
-			),
-		)
+		AGUMAIL_DIR . 'blocks/form',
+		array( 'render_callback' => 'agumail_form_block_render' )
 	);
 }
 

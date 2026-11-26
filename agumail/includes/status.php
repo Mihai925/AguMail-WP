@@ -183,7 +183,7 @@ function agumail_status_render_section() {
 			sprintf(
 			/* translators: the time sending carries on */
 				__( 'Sending is paused until %s. AguMail asked the plugin to wait, or refused the last request; nothing is lost.', 'agumail' ),
-				wp_date( get_option( 'time_format', 'H:i' ), $until )
+				agumail_date( get_option( 'time_format', 'H:i' ), $until )
 			)
 		);
 	}
@@ -193,7 +193,7 @@ function agumail_status_render_section() {
 			sprintf(
 			/* translators: the date AguMail stopped taking store data */
 				__( 'Paused since %s: your AguMail plan does not include store sync. Orders and products wait here; signups and checkout subscribers carry on.', 'agumail' ),
-				wp_date( get_option( 'date_format', 'Y-m-d' ), agumail_store_sync_held_since() )
+				agumail_date( get_option( 'date_format', 'Y-m-d' ), agumail_store_sync_held_since() )
 			)
 		);
 	}

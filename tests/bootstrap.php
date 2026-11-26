@@ -97,6 +97,9 @@ function agm_request($name, $kind, callable $body) {
     }
     $GLOBALS['agm']['request'] = $name;
     $GLOBALS['agm']['context'] = $contexts[$kind];
+    foreach (isset($GLOBALS['agm']['cache_non_persistent']) ? array_keys($GLOBALS['agm']['cache_non_persistent']) : array() as $group) {
+        unset($GLOBALS['agm']['cache'][$group]);
+    }
     $_GET = $_POST = $_REQUEST = array();
     $http_before = count($GLOBALS['agm']['http']);
     $logs_before = count($GLOBALS['agm']['logs']);

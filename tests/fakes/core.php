@@ -252,11 +252,30 @@ function wp_cache_set($key, $value, $group = '', $ttl = 0) { $GLOBALS['agm']['ca
 function wp_cache_add($key, $value, $group = '', $ttl = 0) { if (wp_cache_get($key, $group) !== false) { return false; } return wp_cache_set($key, $value, $group); }
 function wp_cache_delete($key, $group = '') { unset($GLOBALS['agm']['cache'][$group][$key]); return true; }
 function wp_cache_flush() { $GLOBALS['agm']['cache'] = array(); return true; }
+/** As WordPress: these groups live for one request only (agm_request() empties them as a request starts). */
+function wp_cache_add_non_persistent_groups($groups) {
+    foreach ((array) $groups as $group) {
+        $GLOBALS['agm']['cache_non_persistent'][$group] = true;
+    }
+}
 /** Features the object cache supports; list unsupported ones in $GLOBALS['agm']['cache_unsupported']. */
 function wp_cache_supports($feature) {
     return !in_array($feature, isset($GLOBALS['agm']['cache_unsupported']) ? $GLOBALS['agm']['cache_unsupported'] : array(), true);
 }
-function wp_cache_flush_runtime() { $GLOBALS['agm']['runtime_flushes'] = (isset($GLOBALS['agm']['runtime_flushes']) ? $GLOBALS['agm']['runtime_flushes'] : 0) + 1; return true; }
+function wp_cache_flush_runtime() { $GLOBALS['wp_object_cache']->flush_runtime(); return true; }
+/** A persistent object cache that can drop its in-memory copies, as Redis Object Cache can. */
+class Agm_Object_Cache {
+    public function flush_runtime() {
+        $GLOBALS['agm']['runtime_flushes'] = (isset($GLOBALS['agm']['runtime_flushes']) ? $GLOBALS['agm']['runtime_flushes'] : 0) + 1;
+        return true;
+    }
+}
+$GLOBALS['wp_object_cache'] = new Agm_Object_Cache();
+if (!function_exists('wp_using_ext_object_cache')) {
+    function wp_using_ext_object_cache($using = null) {
+        return !empty($GLOBALS['agm']['ext_object_cache']);
+    }
+}
 
 // Legacy WP-Cron, in case anything still asks.
 function wp_next_scheduled($hook, $args = array()) { return false; }

@@ -383,8 +383,11 @@
 	padding-inline-start: 22px;
 }
 
+/* Icon glyphs here say `content: X` then `content: X / ""`: browsers that know
+   alternative text read the empty one and skip the glyph, older ones keep X. */
 .agumail-welcome-points li::before {
 	content: "\f147";
+	content: "\f147" / "";
 	position: absolute;
 	inset-inline-start: -2px;
 	top: 0;
@@ -471,16 +474,19 @@
 
 .agumail-advanced summary::before {
 	content: "\f345";
+	content: "\f345" / "";
 	font: normal 16px/1 dashicons;
 	speak: never;
 }
 
 .rtl .agumail-advanced summary::before {
 	content: "\f341";
+	content: "\f341" / "";
 }
 
 .agumail-advanced[open] summary::before {
 	content: "\f347";
+	content: "\f347" / "";
 }
 
 .agumail-advanced summary:hover {
@@ -673,4 +679,9 @@
 		padding-inline-start: 0;
 		border-inline-start: 0;
 	}
+}
+
+/* A section's own .wrap (admin output keeps one) sits inside the page's and adds no space. */
+.agumail-settings .agumail-section-wrap {
+	margin: 0;
 }

@@ -829,7 +829,7 @@ function test_bulk_sync_admin_js_stops_on_403_and_says_to_reload($plugin_dir) {
 function test_bulk_sync_will_not_start_when_the_database_does_not_answer() {
     bulk_sync_store();
     // Where the store ends, and how many paid orders there are: a count it refuses is not 0.
-    foreach (array('/^SELECT MAX\(/', '/^SELECT COUNT\(\*\) FROM wp_posts p LEFT JOIN/') as $pattern) {
+    foreach (array('/^wc_get_orders/', '/^SELECT COUNT\(\*\) FROM wp_posts p LEFT JOIN/') as $pattern) {
         $GLOBALS['agm']['p4_db_errors'] = array($pattern => 1);
         bulk_sync_start();
         expect_same('idle', agumail_bulk_state()['status'], "a sync started after the database refused $pattern");

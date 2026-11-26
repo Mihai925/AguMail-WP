@@ -218,6 +218,31 @@ namespace {
     }
 
     /** Store orders (not refunds), by id. */
+    /**
+     * wc_get_orders() as the plugin calls it: the newest shop order's id, by
+     * ID, among the statuses asked for. Fails like a query matching
+     * '/^wc_get_orders/' in p4_db_errors.
+     */
+    function agm_p4_wc_get_orders($args) {
+        foreach (isset($GLOBALS['agm']['p4_db_errors']) ? $GLOBALS['agm']['p4_db_errors'] : array() as $pattern => $times) {
+            if ($times > 0 && preg_match($pattern, 'wc_get_orders')) {
+                $GLOBALS['agm']['p4_db_errors'][$pattern]--;
+                $GLOBALS['wpdb']->last_error = 'Lost connection to MySQL server during query';
+                return array();
+            }
+        }
+        $statuses = isset($args['status']) ? (array) $args['status'] : array();
+        $ids = array();
+        foreach (agm_p4_shop_orders() as $id => $order) {
+            if (!$statuses || in_array('wc-' . $order->get_status(), $statuses, true) || in_array($order->get_status(), $statuses, true)) {
+                $ids[] = $id;
+            }
+        }
+        rsort($ids);
+        return array_slice($ids, 0, isset($args['limit']) && $args['limit'] > 0 ? (int) $args['limit'] : count($ids));
+    }
+    $GLOBALS['agm']['wc_get_orders'] = 'agm_p4_wc_get_orders';
+
     function agm_p4_shop_orders() {
         $orders = array();
         foreach ($GLOBALS['agm']['orders'] as $id => $order) {

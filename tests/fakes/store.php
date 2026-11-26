@@ -32,6 +32,22 @@ class Agm_Fake_Store {
         agm_record_write('outbox', $type . ':' . $key, 'insert');
         return true;
     }
+    // One statement in MySQL; here each key is written as enqueue() writes it without a payload,
+    // except that with $keep_payload a row holding a payload is left as it is (and no write is logged).
+    public function enqueue_many($type, array $keys, $now, $keep_payload = false) {
+        foreach ($keys as $key) {
+            $key = (string) $key;
+            if ($keep_payload) {
+                foreach ($this->outbox as $row) {
+                    if ($row['type'] === $type && $row['object_key'] === $key && $row['payload'] !== null) {
+                        continue 2;
+                    }
+                }
+            }
+            $this->enqueue($type, $key, null, $now);
+        }
+        return true;
+    }
     public function find($type, $key) {
         foreach ($this->outbox as $row) {
             if ($row['type'] === $type && $row['object_key'] === $key) {
@@ -188,11 +204,11 @@ class Agm_Fake_Store {
         }
         return $found ? agumail_cart_row_types($found) : null;
     }
-    public function carts_by_email($email, array $statuses, $limit) {
+    public function carts_by_email($email, array $statuses, $limit, $offset = 0) {
         $rows = array_values(array_filter($this->carts, function ($row) use ($email, $statuses) {
             return $row['email'] === $email && (!$statuses || in_array($row['status'], $statuses, true));
         }));
-        return array_map('agumail_cart_row_types', array_slice($rows, 0, $limit));
+        return array_map('agumail_cart_row_types', array_slice($rows, $offset, $limit));
     }
     public function has_work($now) {
         foreach ($this->outbox as $row) {
@@ -261,6 +277,14 @@ class Agm_Fake_Store {
         $this->carts[$id]['dirty'] = $this->carts[$id]['version'] > (int) $version ? 1 : 0;
         agm_record_write('carts', $id, 'queued');
         return true;
+    }
+    // One statement in MySQL; here cart_mark_queued() for each cart. Returns how many carts changed.
+    public function carts_mark_queued(array $versions) {
+        $count = 0;
+        foreach ($versions as $id => $version) {
+            $count += $this->cart_mark_queued((string) $id, (int) $version) ? 1 : 0;
+        }
+        return $count;
     }
     public function carts_count_by_ip($ip_hash, $since) {
         return count(array_filter($this->carts, function ($row) use ($ip_hash, $since) {

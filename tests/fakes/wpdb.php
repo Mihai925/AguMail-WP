@@ -54,6 +54,10 @@ class Agm_Fake_WPDB {
         }, $query);
     }
     private function record($kind, $sql) {
+        // As $wpdb: every statement goes through the query filter before it runs.
+        if (function_exists('apply_filters')) {
+            $sql = apply_filters('query', $sql);
+        }
         $sql = trim(preg_replace('/\s+/', ' ', (string) $sql));
         $this->queries[] = array('kind' => $kind, 'sql' => $sql);
         return $sql;
@@ -68,6 +72,13 @@ class Agm_Fake_WPDB {
     }
     public function query($sql) {
         $sql = $this->record('query', $sql);
+        if (preg_match("/^SHOW TABLES LIKE '((?:[^'\\\\]|\\\\.)*)'/i", $sql, $m)) {
+            $count = 0;
+            foreach (array_keys($this->tables) as $name) {
+                $count += agm_sql_like($name, stripslashes($m[1])) ? 1 : 0;
+            }
+            return $count;
+        }
         if (preg_match('/^DROP TABLE IF EXISTS `?(\w+)`?/i', $sql, $m)) {
             unset($this->tables[$m[1]]);
             return true;

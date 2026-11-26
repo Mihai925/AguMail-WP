@@ -397,7 +397,9 @@ function agumail_bulk_progress() {
  * @param string $hook_suffix The admin page being loaded.
  */
 function agumail_bulk_enqueue_script( $hook_suffix = '' ) {
-	if ( agumail_admin_hook_suffix() !== $hook_suffix || ! current_user_can( AGUMAIL_ADMIN_CAPABILITY ) ) {
+	// Only on the AguMail page: the hook it was given, and the screen WordPress set up for it.
+	$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+	if ( agumail_admin_hook_suffix() !== $hook_suffix || ( $screen && agumail_admin_hook_suffix() !== $screen->id ) || ! current_user_can( AGUMAIL_ADMIN_CAPABILITY ) ) {
 		return;
 	}
 	wp_enqueue_script( 'agumail-admin', plugins_url( 'assets/js/admin.js', AGUMAIL_FILE ), array(), AGUMAIL_VERSION, true );
@@ -502,9 +504,7 @@ function agumail_bulk_step( $run_id = '' ) {
 				agumail_bulk_next_phase( $state );
 			}
 			// The users, products and orders of this page need not stay in memory for the next.
-			if ( function_exists( 'wp_cache_flush_runtime' ) && ( ! function_exists( 'wp_cache_supports' ) || wp_cache_supports( 'flush_runtime' ) ) ) {
-				wp_cache_flush_runtime();
-			}
+			agumail_release_cache_memory();
 			if ( 'done' === $state['phase'] ) {
 				return agumail_bulk_finish( $state, 'done' );
 			}
@@ -1597,7 +1597,7 @@ function agumail_bulk_last_read_error() {
 /**
  * Rows from a lookup, or null on a database error.
  *
- * @param array|null $result What $wpdb->get_results() returned.
+ * @param array|null $result What agumail_db_get_results() returned.
  */
 function agumail_bulk_checked( $result ) {
 	return agumail_bulk_read_failed() ? null : (array) $result;
@@ -1606,7 +1606,7 @@ function agumail_bulk_checked( $result ) {
 /**
  * Ids from a page query, or null on a database error.
  *
- * @param array|null $result What $wpdb->get_col() returned.
+ * @param array|null $result What agumail_db_get_col() returned.
  */
 function agumail_bulk_checked_ids( $result ) {
 	return agumail_bulk_read_failed() ? null : array_map( 'intval', (array) $result );
@@ -1615,7 +1615,7 @@ function agumail_bulk_checked_ids( $result ) {
 /**
  * A count or a highest id (0 for none), or null on a database error.
  *
- * @param string|null $result What $wpdb->get_var() returned.
+ * @param int|string|null $result What agumail_db_get_var() returned, or a count.
  */
 function agumail_bulk_checked_count( $result ) {
 	return agumail_bulk_read_failed() ? null : (int) $result;
@@ -1722,8 +1722,7 @@ function agumail_bulk_user_ids( $subscribed, array $state, $after, $limit, $coun
 	$wpdb->last_error = '';
 	if ( $subscribed && $count ) {
 		return agumail_bulk_checked_count(
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a count of the store's accounts for the sync's progress, read once.
-			$wpdb->get_var(
+			agumail_db_get_var(
 				$wpdb->prepare(
 					"SELECT COUNT(*) FROM {$wpdb->users} u WHERE u.ID > %d AND u.ID <= %d AND u.user_email <> ''"
 					. " AND EXISTS (SELECT 1 FROM {$wpdb->usermeta} cm WHERE cm.user_id = u.ID AND cm.meta_key = %s)"
@@ -1739,8 +1738,7 @@ function agumail_bulk_user_ids( $subscribed, array $state, $after, $limit, $coun
 	}
 	if ( $subscribed ) {
 		return agumail_bulk_checked_ids(
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a keyset page of the store's accounts, read once by a background job.
-			$wpdb->get_col(
+			agumail_db_get_col(
 				$wpdb->prepare(
 					"SELECT u.ID FROM {$wpdb->users} u WHERE u.ID > %d AND u.ID <= %d AND u.user_email <> ''"
 					. " AND EXISTS (SELECT 1 FROM {$wpdb->usermeta} cm WHERE cm.user_id = u.ID AND cm.meta_key = %s)"
@@ -1758,8 +1756,7 @@ function agumail_bulk_user_ids( $subscribed, array $state, $after, $limit, $coun
 	}
 	if ( $count ) {
 		return agumail_bulk_checked_count(
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a count of the store's accounts for the sync's progress, read once.
-			$wpdb->get_var(
+			agumail_db_get_var(
 				$wpdb->prepare(
 					"SELECT COUNT(*) FROM {$wpdb->users} u WHERE u.ID > %d AND u.ID <= %d AND u.user_email <> ''"
 					. " AND EXISTS (SELECT 1 FROM {$wpdb->usermeta} cm WHERE cm.user_id = u.ID AND cm.meta_key = %s AND (cm.meta_value REGEXP %s"
@@ -1776,8 +1773,7 @@ function agumail_bulk_user_ids( $subscribed, array $state, $after, $limit, $coun
 		);
 	}
 	return agumail_bulk_checked_ids(
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a keyset page of the store's accounts, read once by a background job.
-		$wpdb->get_col(
+		agumail_db_get_col(
 			$wpdb->prepare(
 				"SELECT u.ID FROM {$wpdb->users} u WHERE u.ID > %d AND u.ID <= %d AND u.user_email <> ''"
 				. " AND EXISTS (SELECT 1 FROM {$wpdb->usermeta} cm WHERE cm.user_id = u.ID AND cm.meta_key = %s AND (cm.meta_value REGEXP %s"
@@ -1808,8 +1804,7 @@ function agumail_bulk_product_ids( $after, $limit, $count = false ) {
 	$wpdb->last_error = '';
 	if ( $count ) {
 		return agumail_bulk_checked_count(
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a count of the store's products for the sync's progress, read once.
-			$wpdb->get_var(
+			agumail_db_get_var(
 				$wpdb->prepare(
 					"SELECT COUNT(*) FROM {$wpdb->posts} p WHERE p.post_type = 'product' AND p.post_status = 'publish' AND p.ID > %d",
 					(int) $after
@@ -1818,8 +1813,7 @@ function agumail_bulk_product_ids( $after, $limit, $count = false ) {
 		);
 	}
 	return agumail_bulk_checked_ids(
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a keyset page of the store's products, read once by a background job.
-		$wpdb->get_col(
+		agumail_db_get_col(
 			$wpdb->prepare(
 				"SELECT p.ID FROM {$wpdb->posts} p WHERE p.post_type = 'product' AND p.post_status = 'publish' AND p.ID > %d ORDER BY p.ID ASC LIMIT %d",
 				(int) $after,
@@ -1852,8 +1846,7 @@ function agumail_bulk_order_ids( array $state, $after, $limit, $count = false ) 
 	if ( agumail_bulk_hpos() ) {
 		if ( $count ) {
 			return agumail_bulk_checked_count(
-				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a count of the store's orders for the sync's progress, read once.
-				$wpdb->get_var(
+				agumail_db_get_var(
 					$wpdb->prepare(
 						"SELECT COUNT(*) FROM {$wpdb->prefix}wc_orders o LEFT JOIN {$wpdb->prefix}wc_order_operational_data d ON d.order_id = o.id"
 						. " WHERE o.type = 'shop_order' AND o.status NOT IN (" . implode( ', ', array_fill( 0, count( $unpaid ), '%s' ) ) . ')'
@@ -1866,8 +1859,7 @@ function agumail_bulk_order_ids( array $state, $after, $limit, $count = false ) 
 		}
 		$args[] = (int) $limit;
 		return agumail_bulk_checked_ids(
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a keyset page of the store's orders, read once by a background job.
-			$wpdb->get_col(
+			agumail_db_get_col(
 				$wpdb->prepare(
 					"SELECT o.id FROM {$wpdb->prefix}wc_orders o LEFT JOIN {$wpdb->prefix}wc_order_operational_data d ON d.order_id = o.id"
 					. " WHERE o.type = 'shop_order' AND o.status NOT IN (" . implode( ', ', array_fill( 0, count( $unpaid ), '%s' ) ) . ')'
@@ -1880,8 +1872,7 @@ function agumail_bulk_order_ids( array $state, $after, $limit, $count = false ) 
 	}
 	if ( $count ) {
 		return agumail_bulk_checked_count(
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a count of the store's orders for the sync's progress, read once.
-			$wpdb->get_var(
+			agumail_db_get_var(
 				$wpdb->prepare(
 					"SELECT COUNT(*) FROM {$wpdb->posts} p"
 					. " LEFT JOIN {$wpdb->postmeta} dp ON dp.post_id = p.ID AND dp.meta_key = '_date_paid'"
@@ -1897,8 +1888,7 @@ function agumail_bulk_order_ids( array $state, $after, $limit, $count = false ) 
 	}
 	$args[] = (int) $limit;
 	return agumail_bulk_checked_ids(
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a keyset page of the store's orders, read once by a background job.
-		$wpdb->get_col(
+		agumail_db_get_col(
 			$wpdb->prepare(
 				"SELECT p.ID FROM {$wpdb->posts} p"
 				. " LEFT JOIN {$wpdb->postmeta} dp ON dp.post_id = p.ID AND dp.meta_key = '_date_paid'"
@@ -1932,8 +1922,7 @@ function agumail_bulk_ticked_order_ids( array $state, $after, $limit, $count = f
 	if ( agumail_bulk_hpos() ) {
 		if ( $count ) {
 			return agumail_bulk_checked_count(
-				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a count of the store's orders for the sync's progress, read once.
-				$wpdb->get_var(
+				agumail_db_get_var(
 					$wpdb->prepare(
 						"SELECT COUNT(*) FROM {$wpdb->prefix}wc_orders o"
 						. " INNER JOIN {$wpdb->prefix}wc_orders_meta m ON m.order_id = o.id AND m.meta_key = '_agumail_optin' AND m.meta_value = 'yes'"
@@ -1949,8 +1938,7 @@ function agumail_bulk_ticked_order_ids( array $state, $after, $limit, $count = f
 		}
 		$args[] = (int) $limit;
 		return agumail_bulk_checked_ids(
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a keyset page of the store's orders, read once by a background job.
-			$wpdb->get_col(
+			agumail_db_get_col(
 				$wpdb->prepare(
 					"SELECT o.id FROM {$wpdb->prefix}wc_orders o"
 					. " INNER JOIN {$wpdb->prefix}wc_orders_meta m ON m.order_id = o.id AND m.meta_key = '_agumail_optin' AND m.meta_value = 'yes'"
@@ -1966,8 +1954,7 @@ function agumail_bulk_ticked_order_ids( array $state, $after, $limit, $count = f
 	}
 	if ( $count ) {
 		return agumail_bulk_checked_count(
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a count of the store's orders for the sync's progress, read once.
-			$wpdb->get_var(
+			agumail_db_get_var(
 				$wpdb->prepare(
 					"SELECT COUNT(*) FROM {$wpdb->posts} p"
 					. " INNER JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key = '_agumail_optin' AND m.meta_value = 'yes'"
@@ -1985,8 +1972,7 @@ function agumail_bulk_ticked_order_ids( array $state, $after, $limit, $count = f
 	}
 	$args[] = (int) $limit;
 	return agumail_bulk_checked_ids(
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a keyset page of the store's orders, read once by a background job.
-		$wpdb->get_col(
+		agumail_db_get_col(
 			$wpdb->prepare(
 				"SELECT p.ID FROM {$wpdb->posts} p"
 				. " INNER JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key = '_agumail_optin' AND m.meta_value = 'yes'"
@@ -2003,24 +1989,54 @@ function agumail_bulk_ticked_order_ids( array $state, $after, $limit, $count = f
 	);
 }
 
-/** The highest order id now: the sync's bound. Orders after it reach AguMail through the live queue. Null on a database error. */
+/**
+ * The highest order id now: the sync's bound. Orders after it reach AguMail
+ * through the live queue. Null on a database error.
+ *
+ * Read through WooCommerce's own order query, so it is the same with or
+ * without High-Performance Order Storage. Every order status WooCommerce
+ * knows counts; a trashed or auto-draft order above the bound is never a
+ * purchase the history sync would send, and the live path has it if it ever
+ * becomes one.
+ *
+ * @return int|null
+ */
 function agumail_bulk_max_order_id() {
 	global $wpdb;
 	$wpdb->last_error = '';
-	if ( agumail_bulk_hpos() ) {
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the sync's bound, read once when it starts.
-		return agumail_bulk_checked_count( $wpdb->get_var( $wpdb->prepare( 'SELECT MAX(o.id) FROM %i o WHERE o.type = %s', $wpdb->prefix . 'wc_orders', 'shop_order' ) ) );
+	$ids              = agumail_bulk_order_query(
+		array(
+			'type'    => 'shop_order',
+			'status'  => array_keys( wc_get_order_statuses() ),
+			'limit'   => 1,
+			'orderby' => 'ID',
+			'order'   => 'DESC',
+			'return'  => 'ids',
+		)
+	);
+	$max              = 0;
+	foreach ( is_array( $ids ) ? $ids : array() as $id ) {
+		$max = is_scalar( $id ) ? max( $max, (int) $id ) : $max;
 	}
-	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the sync's bound, read once when it starts.
-	return agumail_bulk_checked_count( $wpdb->get_var( $wpdb->prepare( 'SELECT MAX(p.ID) FROM %i p WHERE p.post_type = %s', $wpdb->posts, 'shop_order' ) ) );
+	return agumail_bulk_checked_count( $max );
+}
+
+/**
+ * WooCommerce's order query, with or without HPOS. What it returns depends on
+ * $args['return'] (orders, ids, or a paginated object), so it is mixed.
+ *
+ * @param array $args The wc_get_orders() arguments.
+ * @return mixed
+ */
+function agumail_bulk_order_query( array $args ) {
+	return wc_get_orders( $args );
 }
 
 /** The highest account id now: the bound of the account phases. Accounts made after it are the live path's. */
 function agumail_bulk_max_user_id() {
 	global $wpdb;
 	$wpdb->last_error = '';
-	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the sync's bound, read once when it starts.
-	return agumail_bulk_checked_count( $wpdb->get_var( $wpdb->prepare( 'SELECT MAX(ID) FROM %i', $wpdb->users ) ) );
+	return agumail_bulk_checked_count( agumail_db_get_var( $wpdb->prepare( 'SELECT MAX(ID) FROM %i', $wpdb->users ) ) );
 }
 
 /**
@@ -2046,8 +2062,7 @@ function agumail_bulk_buyer_orders( array $emails, array $state ) {
 	$args             = array_merge( agumail_bulk_range_args( $state ), $emails, $unpaid, $paid, array( (int) $state['max_order_id'] ) );
 	$wpdb->last_error = '';
 	if ( agumail_bulk_hpos() ) {
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the first orders of one page's buyers, read once by a background job.
-		$rows = $wpdb->get_results(
+		$rows = agumail_db_get_results(
 			$wpdb->prepare(
 				'SELECT LOWER(o.billing_email) AS email, MIN(o.date_created_gmt) AS first_at,'
 				. ' MIN(CASE WHEN %d = 0 OR o.date_created_gmt >= %s THEN o.id END) AS first_id,'
@@ -2063,8 +2078,7 @@ function agumail_bulk_buyer_orders( array $emails, array $state ) {
 			ARRAY_A
 		);
 	} else {
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the first orders of one page's buyers, read once by a background job.
-		$rows = $wpdb->get_results(
+		$rows = agumail_db_get_results(
 			$wpdb->prepare(
 				'SELECT LOWER(e.meta_value) AS email, MIN(p.post_date_gmt) AS first_at,'
 				. ' MIN(CASE WHEN %d = 0 OR p.post_date_gmt >= %s THEN p.ID END) AS first_id,'
@@ -2121,8 +2135,7 @@ function agumail_bulk_optin_orders( array $user_ids, array $state ) {
 	$args             = array_merge( $user_ids, $unpaid, $paid, array( (int) $state['max_order_id'] ) );
 	$wpdb->last_error = '';
 	if ( agumail_bulk_hpos() ) {
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the opted-in orders of one page's accounts, read once by a background job.
-		$rows = $wpdb->get_results(
+		$rows = agumail_db_get_results(
 			$wpdb->prepare(
 				"SELECT o.customer_id AS user_id, MIN(o.id) AS optin_id FROM {$wpdb->prefix}wc_orders o"
 				. " INNER JOIN {$wpdb->users} u ON u.ID = o.customer_id AND LOWER(o.billing_email) = LOWER(u.user_email)"
@@ -2138,8 +2151,7 @@ function agumail_bulk_optin_orders( array $user_ids, array $state ) {
 			ARRAY_A
 		);
 	} else {
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the opted-in orders of one page's accounts, read once by a background job.
-		$rows = $wpdb->get_results(
+		$rows = agumail_db_get_results(
 			$wpdb->prepare(
 				"SELECT c.meta_value AS user_id, MIN(p.ID) AS optin_id FROM {$wpdb->postmeta} c STRAIGHT_JOIN {$wpdb->posts} p ON p.ID = c.post_id"
 				. " INNER JOIN {$wpdb->users} u ON u.ID = c.meta_value"
@@ -2206,7 +2218,7 @@ function agumail_bulk_render_section() {
  * @param int $timestamp The Unix timestamp.
  */
 function agumail_bulk_datetime( $timestamp ) {
-	return wp_date( get_option( 'date_format', 'Y-m-d' ) . ' ' . get_option( 'time_format', 'H:i' ), (int) $timestamp );
+	return agumail_date( get_option( 'date_format', 'Y-m-d' ) . ' ' . get_option( 'time_format', 'H:i' ), (int) $timestamp );
 }
 
 /**
@@ -2277,7 +2289,7 @@ function agumail_bulk_render_wait( array $state ) {
 	if ( (int) $state['retry_at'] <= agumail_time() && 'paused' !== $state['wait'] ) {
 		return;
 	}
-	$at    = wp_date( get_option( 'time_format', 'H:i' ), (int) $state['retry_at'] );
+	$at    = agumail_date( get_option( 'time_format', 'H:i' ), (int) $state['retry_at'] );
 	$error = rtrim( (string) $state['error'], '. ' );
 	switch ( $state['wait'] ) {
 		case 'rate':

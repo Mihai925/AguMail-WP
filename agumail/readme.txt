@@ -6,7 +6,7 @@ Tested up to: 7.1
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 11.2
-Stable tag: 1.0.1
+Stable tag: 1.0.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -158,6 +158,16 @@ AguMail's privacy policy: https://agumail.com/privacy
 On a site without WooCommerce, the plugin runs its background tasks on Action Scheduler 4.2.0 (https://actionscheduler.org, GPLv3 or later), bundled in vendor/woocommerce/action-scheduler. On a WooCommerce store, WooCommerce's own copy is used.
 
 == Changelog ==
+
+= 1.0.2 =
+* Security: the checkout email capture now carries a nonce tied to the shopper's session, on top of its per-session and per-address limits.
+* Security: every request value is read once, unslashed, and cleaned for its type; every database query is fully prepared, with no SQL built from variables.
+* Tweak: cookies are set through a WP Consent API check, and the campaign cookie's consent check sits on the cookie itself.
+* Tweak: the history sync finds its last order through WooCommerce's own order query, the same with or without HPOS.
+* Tweak: database reads share a per-request cache that any write clears; product saves, category renames and the cart queue write in batches.
+* Tweak: shorter waits for AguMail while a merchant is on a wp-admin page; long product texts are trimmed faster.
+* Tweak: the form block is defined in block.json.
+* Accessibility: sync progress and session messages are announced to screen readers, the settings page's section links move focus, and status badges and warnings name their state.
 
 = 1.0.1 =
 * Security: the settings actions check the nonce and capability as soon as a request arrives, before anything runs.

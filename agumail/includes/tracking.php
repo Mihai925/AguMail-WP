@@ -305,10 +305,9 @@ function agumail_tracking_logout_cookies() {
 function agumail_tracking_forget_visitor() {
 	foreach ( agumail_tracking_logout_cookies() as $name => $options ) {
 		unset( $_COOKIE[ $name ] );
-		// Expires the cookie: removing one needs no consent.
-		if ( ! headers_sent() ) {
-			setcookie( $name, '', $options );
-		}
+		// Expires the cookie. Removing a cookie is functional, which the
+		// WP Consent API always allows, so it goes whatever the visitor chose.
+		agumail_setcookie( $name, '', $options, 'functional' );
 	}
 }
 
@@ -337,9 +336,18 @@ function agumail_tracking_register_admin() {
 }
 
 /**
- * Prints the Website tracking section: the switch, and why no script is added yet when there is none.
+ * Prints the Website tracking section, in a .wrap with no margin of its own.
  */
 function agumail_tracking_render_section() {
+	echo '<div class="wrap agumail-section-wrap">';
+	agumail_tracking_render_section_body();
+	echo '</div>';
+}
+
+/**
+ * The Website tracking section's content: the switch, and why no script is added yet when there is none.
+ */
+function agumail_tracking_render_section_body() {
 	$on    = agumail_tracking_on();
 	$store = agumail_woocommerce_active();
 	echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
@@ -368,7 +376,7 @@ function agumail_tracking_render_section() {
 		return;
 	}
 	// Connected by key, on an account that has not switched site tracking on in AguMail yet.
-	echo '<div class="agumail-problem is-warning agumail-callout"><p>' . esc_html__( 'Your AguMail account has no site tracking yet. Switch it on in AguMail under Settings > Site tracking, then check again here.', 'agumail' ) . '</p>';
+	echo '<div class="agumail-problem is-warning agumail-callout"><p><span class="screen-reader-text">' . esc_html( agumail_admin_state_word( 'warning' ) ) . ' </span>' . esc_html__( 'Your AguMail account has no site tracking yet. Switch it on in AguMail under Settings > Site tracking, then check again here.', 'agumail' ) . '</p>';
 	echo '<div class="agumail-actions">';
 	agumail_connect_app_button( agumail_admin_app_link( '/dashboard/settings#site-tracking', 'tracking' ), __( 'Open site tracking', 'agumail' ) );
 	agumail_connect_button( 'connect_check', __( 'Check again', 'agumail' ), 'secondary' );

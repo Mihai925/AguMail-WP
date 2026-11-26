@@ -422,3 +422,112 @@ function outbox_deactivate_without_action_scheduler() {
         'deactivating should remove only this plugin\'s pending jobs: ' . $deleted[0]);
     expect_same(array(), $wpdb->statements('/actionscheduler_logs/'), 'deactivating should keep the history of jobs that ran');
 }
+
+// ── Batches ──
+
+function test_outbox_queueing_many_writes_each_row_as_one_change_without_a_payload() {
+    outbox_frozen_clock(1790000000);
+    agumail_enqueue('contact', 'ada@example.com', array('email' => 'ada@example.com'));
+    $id = outbox_rows()[0]['id'];
+    agm_store()->defer($id, 3, '2026-09-21 20:00:00', 'HTTP 503', true, '2026-09-21 14:13:20');
+
+    outbox_frozen_clock(1790000100);
+    expect_same(array('Ada@Example.com', 'bea@example.com'), agumail_enqueue_many('contact', array('Ada@Example.com', 'bea@example.com', '  ')),
+        'the keys written should be returned as given, and an empty key skipped');
+    $rows = outbox_rows();
+    expect_same(2, count($rows), 'queueing an address already queued made a second row');
+    expect_same(array('ada@example.com', null, 2, 3, 'pending', '2026-09-21 14:15:00'),
+        array($rows[0]['object_key'], $rows[0]['payload'], $rows[0]['version'], $rows[0]['attempts'], $rows[0]['status'], $rows[0]['available_at']),
+        'the existing row was not changed as agumail_enqueue() changes it');
+    expect_same(array('bea@example.com', null, 1, 0, 'pending'),
+        array($rows[1]['object_key'], $rows[1]['payload'], $rows[1]['version'], $rows[1]['attempts'], $rows[1]['status']), 'wrong new row');
+
+    agumail_enqueue_suppressed(true);
+    expect_same(array(), agumail_enqueue_many('order', array(501, 502)), 'a batch was queued inside the drain');
+    agumail_enqueue_suppressed(false);
+    expect_same(2, count(outbox_rows()), 'a batch was queued inside the drain');
+}
+
+function test_outbox_marking_carts_in_a_batch_keeps_the_flag_of_a_cart_that_changed_since() {
+    agumail_cart_save('wc-1', array('token' => str_repeat('a', 32)));
+    agumail_cart_save('wc-2', array('token' => str_repeat('b', 32)));
+    $seen = agumail_carts_dirty(10);
+    agumail_cart_save('wc-1', array('total' => 9));
+    expect_same(2, agm_store()->carts_mark_queued(array('wc-1' => $seen[0]['version'], 'wc-2' => $seen[1]['version'])), 'wrong count of carts marked');
+    expect_same(array('wc-1'), array_column(agumail_carts_dirty(10), 'id'), 'a cart that changed after it was read lost its change');
+    expect_same(array(1, 1), array(agumail_cart_get('wc-1')['queued_version'], agumail_cart_get('wc-2')['queued_version']), 'the queued versions were not recorded');
+    expect_same(0, agm_store()->carts_mark_queued(array('wc-2' => 1)), 'a cart already queued at that version was marked again');
+}
+
+function test_outbox_carts_are_not_moved_or_marked_inside_the_drain() {
+    agumail_cart_save('wc-1', array('token' => str_repeat('a', 32)));
+    agumail_enqueue_suppressed(true);
+    expect_same(0, agumail_carts_move_dirty_to_outbox(), 'a cart was moved while queueing was off');
+    agumail_enqueue_suppressed(false);
+    expect_same(array(), outbox_rows(), 'a cart reached the outbox while queueing was off');
+    expect_same(array('wc-1'), array_column(agumail_carts_dirty(10), 'id'), 'the cart lost its flag without reaching the outbox');
+}
+
+function outbox_raw_carts($count) {
+    $carts = array();
+    for ($i = 1; $i <= $count; $i++) {
+        $carts[] = array('id' => 'wc-' . $i, 'token' => str_repeat('a', 32), 'session_key' => '', 'user_id' => null, 'email' => null, 'lines' => '[]',
+            'total' => '0.0000', 'currency' => 'EUR', 'status' => 'open', 'version' => (string) ($i + 1), 'queued_version' => '1', 'dirty' => '1',
+            'order_id' => null, 'ip_hash' => '', 'created_at' => '2026-09-21 14:13:20', 'updated_at' => '2026-09-21 14:13:20');
+    }
+    return $carts;
+}
+
+function test_outbox_the_real_store_moves_carts_in_two_statements_per_batch_of_200() {
+    global $wpdb;
+    agumail_set_store(new Agumail_Store());
+    $wpdb->answers = array('/^SELECT \* FROM wp_agumail_carts WHERE `dirty` = 1/' => outbox_raw_carts(450));
+    $wpdb->queries = array();
+    expect_same(450, agumail_carts_move_dirty_to_outbox(500), 'not every cart was moved');
+    $sql = $wpdb->statements();
+    expect_same(7, count($sql), '450 carts should take one read and two statements per batch of 200');
+    expect_same(array('SELECT', 'INSERT', 'UPDATE', 'INSERT', 'UPDATE', 'INSERT', 'UPDATE'), array_map(function ($s) { return strtok($s, ' '); }, $sql), 'wrong statements');
+    expect_same(array(200, 200, 50), array(substr_count($sql[1], "('cart', '"), substr_count($sql[3], "('cart', '"), substr_count($sql[5], "('cart', '")), 'wrong batch sizes');
+    expect_that(strpos($sql[1], "ON DUPLICATE KEY UPDATE `payload` = NULL, `version` = `version` + 1, `status` = 'pending', `available_at` = '") !== false, 'the batch upsert does not change a row as agumail_enqueue() does: ' . substr($sql[1], -200));
+    expect_that(strpos($sql[2], "UPDATE wp_agumail_carts SET `dirty` = IF(`version` > CASE `id` WHEN 'wc-1' THEN 2 WHEN 'wc-2' THEN 3 ") === 0, 'the flag is not lowered by the version read: ' . substr($sql[2], 0, 200));
+    expect_that(strpos($sql[2], "`queued_version` = CASE `id` WHEN 'wc-1' THEN 2 ") !== false, 'the queued version is not recorded: ' . substr($sql[2], 0, 200));
+    expect_that(strpos($sql[2], "WHERE `id` IN ('wc-1', 'wc-2', ") !== false && strpos($sql[2], "AND `queued_version` < CASE `id` WHEN 'wc-1' THEN 2 ") !== false, 'the update is not limited to the carts read, or to versions not yet queued: ' . substr($sql[2], -200));
+    expect_that(strpos($sql[6], "WHEN 'wc-450' THEN 451 END") !== false, 'the last cart was not marked');
+}
+
+function test_outbox_the_real_store_leaves_carts_flagged_when_their_upsert_fails() {
+    global $wpdb;
+    agumail_set_store(new Agumail_Store());
+    $wpdb->answers = array(
+        '/^SELECT \* FROM wp_agumail_carts WHERE `dirty` = 1/' => outbox_raw_carts(3),
+        '/^INSERT INTO wp_agumail_outbox/' => false,
+    );
+    $wpdb->queries = array();
+    expect_same(0, agumail_carts_move_dirty_to_outbox(), 'carts were reported moved');
+    expect_same(array(), $wpdb->statements('/^UPDATE wp_agumail_carts/'), 'carts were marked though their rows were not written');
+}
+
+function test_outbox_the_real_store_matches_statuses_and_types_with_fixed_sql() {
+    global $wpdb;
+    agumail_set_store(new Agumail_Store());
+    $wpdb->queries = array();
+    agumail_cart_find_by_session('t_1', array('open'));
+    agumail_cart_find_by_session('t_1', array());
+    agumail_store()->carts_by_email('ada@example.com', array('open', 'ordered'), 20, 40);
+    agumail_carts_purge(array('emptied', 'ordered'), 1790000000);
+    agumail_carts_purge(array(), 1790000000);
+    agumail_store()->discard_pending(array('order', 'product'), '2026-09-01 00:00:00');
+    agumail_store()->discard_pending(array('cart'));
+    agumail_store()->discard_pending(array());
+    expect_same(array(
+        "SELECT * FROM wp_agumail_carts WHERE `session_key` = 't_1' AND FIND_IN_SET(`status`, 'open') ORDER BY `updated_at` DESC LIMIT 1",
+        "SELECT * FROM wp_agumail_carts WHERE `session_key` = 't_1' ORDER BY `updated_at` DESC LIMIT 1",
+        "SELECT * FROM wp_agumail_carts WHERE `email` = 'ada@example.com' AND FIND_IN_SET(`status`, 'open,ordered') ORDER BY `updated_at` DESC LIMIT 20 OFFSET 40",
+        "DELETE FROM wp_agumail_carts WHERE `status` = 'emptied' AND `updated_at` < '2026-09-21 14:13:20'",
+        "DELETE FROM wp_agumail_carts WHERE `status` = 'ordered' AND `updated_at` < '2026-09-21 14:13:20'",
+        "DELETE FROM wp_agumail_carts WHERE `updated_at` < '2026-09-21 14:13:20'",
+        "DELETE FROM wp_agumail_outbox WHERE `status` = 'pending' AND `type` = 'order' AND `updated_at` < '2026-09-01 00:00:00'",
+        "DELETE FROM wp_agumail_outbox WHERE `status` = 'pending' AND `type` = 'product' AND `updated_at` < '2026-09-01 00:00:00'",
+        "DELETE FROM wp_agumail_outbox WHERE `status` = 'pending' AND `type` = 'cart'",
+    ), $wpdb->statements(), 'wrong statements');
+}

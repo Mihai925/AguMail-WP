@@ -46,3 +46,21 @@ function test_privacy_erases_the_carts_and_held_address_and_keeps_the_answer() {
     expect_same('', get_user_meta(7, '_agumail_email', true), 'the held address was not erased');
     expect_same('yes', get_user_meta(7, '_agumail_optin', true), 'the record of consent was erased');
 }
+
+function test_privacy_a_later_page_fetches_only_its_own_carts() {
+    global $wpdb;
+    for ($i = 1; $i <= 150; $i++) {
+        agumail_cart_save('wc-' . $i, array('token' => str_repeat('a', 32), 'email' => 'ada@example.com'));
+    }
+    $first = agumail_privacy_export('ada@example.com', 1);
+    $second = agumail_privacy_export('ada@example.com', 2);
+    expect_same(array(100, false), array(count($first['data']), $first['done']), 'the first page was wrong');
+    expect_same(array(50, true), array(count($second['data']), $second['done']), 'the second page was wrong');
+    expect_same(array('agumail-cart-wc-101', 'agumail-cart-wc-150'), array($second['data'][0]['item_id'], $second['data'][49]['item_id']), 'the second page held the wrong carts');
+
+    agumail_set_store(new Agumail_Store());
+    $wpdb->queries = array();
+    agumail_privacy_export('ada@example.com', 3);
+    expect_same(array("SELECT * FROM wp_agumail_carts WHERE `email` = 'ada@example.com' ORDER BY `updated_at` DESC LIMIT 100 OFFSET 200"),
+        $wpdb->statements('/agumail_carts/'), 'a page should fetch its own 100 carts and no more');
+}
