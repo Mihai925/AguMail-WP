@@ -3,7 +3,7 @@
  * Plugin Name:          AguMail: Email Marketing Made Easy
  * Plugin URI:           https://agumail.com
  * Description:          Signup forms, popups and the forms you already have, sending to AguMail. On a WooCommerce store it also syncs customers, orders, carts and products, for abandoned-cart recovery and revenue attribution.
- * Version:              1.0.2
+ * Version:              1.0.3
  * Author:               AguMail
  * License:              GPLv2 or later
  * Security Contact:     support@agumail.com
@@ -21,7 +21,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'AGUMAIL_VERSION', '1.0.2' );
+define( 'AGUMAIL_VERSION', '1.0.3' );
 define( 'AGUMAIL_FILE', __FILE__ );
 define( 'AGUMAIL_DIR', __DIR__ . '/' );
 

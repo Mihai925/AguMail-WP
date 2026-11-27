@@ -124,7 +124,7 @@ namespace {
         public function __construct($id = 0, array $props = array()) { parent::__construct($id, array_merge(array('type' => 'variable'), $props)); }
     }
     class WC_Product_Variation extends WC_Product {
-        public function __construct($id = 0, array $props = array()) { parent::__construct($id, array_merge(array('type' => 'variation'), $props)); }
+        public function __construct($id = 0, array $props = array()) { parent::__construct($id, array_merge(array('type' => 'variation', 'attributes' => array()), $props)); }
     }
     function agm_product($id, $name = null, $price = '10', array $props = array()) {
         $props = array_merge(array('name' => $name ?: 'Product ' . $id, 'price' => (string) $price, 'regular_price' => (string) $price), $props);
@@ -137,7 +137,17 @@ namespace {
         }
         return isset($GLOBALS['agm']['products'][(int) $id]) ? $GLOBALS['agm']['products'][(int) $id] : false;
     }
-    function wc_get_products($args = array()) { return array_values($GLOBALS['agm']['products']); }
+    /** WooCommerce's product query, for the arguments the plugin passes: type, and return => ids. */
+    function wc_get_products($args = array()) {
+        $products = array_values($GLOBALS['agm']['products']);
+        if (isset($args['type'])) {
+            $products = array_values(array_filter($products, function ($p) use ($args) { return $p->is_type($args['type']); }));
+        }
+        if (isset($args['return']) && $args['return'] === 'ids') {
+            return array_map(function ($p) { return $p->get_id(); }, $products);
+        }
+        return $products;
+    }
     function get_permalink($id = 0) { return 'https://shop.test/?p=' . (is_object($id) ? $id->ID : (int) $id); }
     function get_post_status($id = 0) { $p = wc_get_product($id); return $p ? $p->get_status() : false; }
     function get_post_type($id = 0) { return isset($GLOBALS['agm']['products'][(int) $id]) ? 'product' : (isset($GLOBALS['agm']['orders'][(int) $id]) ? 'shop_order' : false); }
@@ -388,6 +398,12 @@ namespace {
     function is_cart() { return $GLOBALS['agm']['page'] === 'cart'; }
     function is_account_page() { return $GLOBALS['agm']['page'] === 'account'; }
     function is_product() { return $GLOBALS['agm']['page'] === 'product'; }
+    function get_queried_object_id() { return isset($GLOBALS['agm']['queried_id']) ? (int) $GLOBALS['agm']['queried_id'] : 0; }
+    /** As WooCommerce prints an option flat and without names: "Canvas, 16x20". */
+    function wc_get_formatted_variation($variation, $flat = false, $include_names = true, $skip_attributes_in_name = false) {
+        $attributes = $variation instanceof WC_Product ? (array) $variation->get_attributes() : (array) $variation;
+        return implode(', ', array_values($attributes));
+    }
     function is_woocommerce() { return in_array($GLOBALS['agm']['page'], array('product', 'shop'), true); }
     function is_order_received_page() { return $GLOBALS['agm']['page'] === 'order-received'; }
     function is_wc_endpoint_url($endpoint = false) { return false; }

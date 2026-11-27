@@ -39,6 +39,7 @@ $agumail_uninstall_site = function () {
 		'agumail_backoff_until',
 		'agumail_drain_lock',
 		'agumail_db_version',
+		'agumail_catalogue_version',
 		'agumail_batch_sizes',
 		'agumail_site_key',
 		'agumail_site_src',

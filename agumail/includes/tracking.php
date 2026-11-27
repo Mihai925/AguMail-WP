@@ -25,6 +25,12 @@
  * signing out forgets the visitor in this browser. Everything here reads
  * stored options only.
  *
+ * On a product page the footer names the product to the script, from
+ * WooCommerce itself, so the view is recorded on any theme and whatever an SEO
+ * plugin says about the page. A product with options (a size, a colour) also
+ * carries each option's price, picture and link, so the script can record the
+ * one the shopper picks.
+ *
  * Website tracking is off until the merchant switches it on. Once the site is
  * connected and its AguMail account has site tracking, a notice on the
  * Dashboard, the Plugins screen and the AguMail page says so and offers to
@@ -45,6 +51,8 @@ add_action( 'wp_enqueue_scripts', 'agumail_tracking_enqueue', 10, 0 );
 add_filter( 'script_loader_tag', 'agumail_tracking_script_tag', 10, 2 );
 add_action( 'wp_logout', 'agumail_tracking_forget_visitor', 10, 0 );
 add_action( 'admin_notices', 'agumail_tracking_notice', 10, 0 );
+add_action( 'woocommerce_after_single_product', 'agumail_tracking_saw_product', 10, 0 );
+add_action( 'wp_footer', 'agumail_tracking_print_product', 5, 0 );
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Signed identify.
@@ -275,6 +283,117 @@ function agumail_tracking_identify_js( $email, $sig ) {
 		. 'function go(){if(s&&s.hasAttribute("data-agumail-identified"))return;'
 		. 'if(window.agumail&&window.agumail.identify){window.agumail.identify(' . $args . ');}}'
 		. 'if(window.agumail){go();}else if(s){s.addEventListener("load",go);}})();';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The product on the page.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The id of the product this page shows, once something has said so; 0 until then. */
+function &agumail_tracking_viewed() {
+	static $id = 0;
+	return $id;
+}
+
+/**
+ * The single-product template has run for the global product. On a product's
+ * own page that is the product; it also runs for [product_page id=X] and the
+ * Single Product block, which show a product on a page where is_product() is
+ * false. The first product shown is the one the page is about.
+ */
+function agumail_tracking_saw_product() {
+	global $product;
+	$viewed = &agumail_tracking_viewed();
+	if ( ! $viewed && $product instanceof WC_Product ) {
+		$viewed = (int) $product->get_id();
+	}
+}
+
+/**
+ * Prints the product this page shows for the script, while tracking is on. The
+ * script reads it at DOMContentLoaded, so the footer is soon enough, and by
+ * then every template that could show a product has run.
+ */
+function agumail_tracking_print_product() {
+	if ( is_admin() || ! agumail_tracking_on() || ! agumail_tracking_site() || ! function_exists( 'wc_get_product' ) ) {
+		return;
+	}
+	$id = agumail_tracking_viewed();
+	if ( ! $id && function_exists( 'is_product' ) && is_product() ) {
+		$id = (int) get_queried_object_id();
+	}
+	$product = $id ? wc_get_product( $id ) : null;
+	if ( ! $product instanceof WC_Product ) {
+		return;
+	}
+	echo agumail_tracking_product_html( $product ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- every attribute is escaped in agumail_tracking_product_html().
+}
+
+/**
+ * The hidden element the script reads the product from (siteRuntime.ts,
+ * product()): its id, SKU, name, price and currency, and for a product with
+ * options each option by id.
+ *
+ * @param WC_Product $product The product.
+ */
+function agumail_tracking_product_html( WC_Product $product ) {
+	$sku        = agumail_clamp_sku( $product->get_sku() );
+	$attributes = array(
+		'data-agm-product'  => (string) $product->get_id(),
+		'data-agm-sku'      => null !== $sku ? $sku : '',
+		'data-agm-title'    => agumail_catalogue_text( $product->get_name(), 200 ),
+		'data-agm-price'    => agumail_tracking_price( $product ),
+		'data-agm-currency' => (string) agumail_currency( get_woocommerce_currency() ),
+	);
+	if ( $product->is_type( 'variable' ) ) {
+		$attributes['data-agm-options'] = (string) wp_json_encode( (object) agumail_tracking_options( $product ) );
+	}
+	$html = '<span hidden';
+	foreach ( $attributes as $name => $value ) {
+		$html .= ' ' . $name . '="' . esc_attr( $value ) . '"';
+	}
+	return $html . "></span>\n";
+}
+
+/**
+ * The price the catalogue holds for a product (agumail_product_record()), as
+ * text: a product with options is at the lowest of theirs. '' when it has none.
+ *
+ * @param WC_Product $product The product.
+ */
+function agumail_tracking_price( WC_Product $product ) {
+	$price = $product->get_price( 'edit' );
+	return is_numeric( $price ) ? (string) agumail_money( $price ) : '';
+}
+
+/**
+ * Each option of a product, by id, as the catalogue holds it
+ * (agumail_product_options()): what the script sends when the shopper picks it.
+ *
+ * Past WooCommerce's own limit for printing options with the page
+ * (woocommerce_ajax_variation_threshold) there are none: a product with
+ * hundreds would weigh down every view of it, and the script reads an option
+ * off WooCommerce's found_variation instead.
+ *
+ * @param WC_Product $product A product with options.
+ */
+function agumail_tracking_options( WC_Product $product ) {
+	$count = count( (array) $product->get_children() );
+	$limit = (int) apply_filters( 'woocommerce_ajax_variation_threshold', 30, $product ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WooCommerce's own limit, read so ours matches it.
+	if ( $limit > 0 && $count > $limit ) {
+		return array();
+	}
+	$options = array();
+	foreach ( agumail_product_options( $product, $count ) as $record ) {
+		$options[ $record['externalId'] ] = array(
+			'sku'      => isset( $record['sku'] ) ? $record['sku'] : '',
+			'price'    => isset( $record['price'] ) ? (string) $record['price'] : '',
+			'option'   => $record['title'],
+			'imageUrl' => isset( $record['imageUrl'] ) ? $record['imageUrl'] : '',
+			'url'      => isset( $record['productUrl'] ) ? $record['productUrl'] : '',
+		);
+	}
+	return $options;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

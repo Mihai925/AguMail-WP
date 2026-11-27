@@ -6,7 +6,7 @@ Tested up to: 7.1
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 11.2
-Stable tag: 1.0.2
+Stable tag: 1.0.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -158,6 +158,11 @@ AguMail's privacy policy: https://agumail.com/privacy
 On a site without WooCommerce, the plugin runs its background tasks on Action Scheduler 4.2.0 (https://actionscheduler.org, GPLv3 or later), bundled in vendor/woocommerce/action-scheduler. On a WooCommerce store, WooCommerce's own copy is used.
 
 == Changelog ==
+
+= 1.0.3 =
+* Fix: product views are recorded on every theme and with any SEO plugin. The product page now names its product to the AguMail script from WooCommerce itself, including products shown with [product_page] or the Single Product block.
+* New: for a product with sizes, colours or other options, the option a shopper picks is recorded once, with its own price, picture and link, so a browse reminder can bring them back to it.
+* New: the catalogue sync sends each product's options (name, SKU, price, picture and link), and the first visit to wp-admin after the update sends the products that have them once.
 
 = 1.0.2 =
 * Security: the checkout email capture now carries a nonce tied to the shopper's session, on top of its per-session and per-address limits.

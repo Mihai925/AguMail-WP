@@ -20,6 +20,8 @@ export type FakeControl = {
   codeTtlMs?: number;
   /** Whether the account's plan has store sync (default true); without it stores connect for forms and signups only. */
   storeSync?: boolean;
+  /** What /p/_/v1/site.js serves: the recording stub (default) or AguMail's real site runtime (helpers/siteRuntime.ts). */
+  siteScript?: 'stub' | 'real';
   releaseHung?: boolean;
 };
 

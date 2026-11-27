@@ -229,6 +229,7 @@ function agumail_maintain() {
 	}
 	set_transient( 'agumail_maintained', 1, HOUR_IN_SECONDS );
 	agumail_schedule();
+	agumail_product_catch_up();
 	// Every storefront request reads the key, so it must be autoloaded, whatever saved it.
 	if ( function_exists( 'wp_set_option_autoload' ) && agumail_has_api_key() ) {
 		wp_set_option_autoload( 'agumail_api_key', true );

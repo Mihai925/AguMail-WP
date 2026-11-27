@@ -30,6 +30,10 @@
 //   apiKey: 'agm_...'          when set, only this key is accepted (default: any agm_ key)
 //   connectPage: 'approve' | 'show' | 'deny'   the fake app's connect page behaviour
 //   codeTtlMs: N               how long a connect code lives (default 10 minutes; negative issues expired codes)
+//   siteScript: 'stub' | 'real'  what /p/_/v1/site.js serves (default 'stub', the recording stub below).
+//                              'real' serves AguMail's own site runtime from the state folder
+//                              (site-runtime.js, written by helpers/siteRuntime.ts), so a spec sees the
+//                              product views a shopper's browser really sends.
 //   storeSync: true | false    whether the account's plan has store sync (default true). Without it,
 //                              like the real server, connecting a store and sending orders, carts and
 //                              products answer 402 {code: PLAN_FEATURE, feature: storeSync} before the
@@ -46,6 +50,8 @@ import crypto from 'node:crypto';
 const PORT = Number(process.env.PORT || 8090);
 const PUBLIC_URL = (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
 const LOG_FILE = process.env.LOG_FILE || '';
+// The folder shared with the host (.state), where a spec leaves files for the fake to serve.
+const STATE_DIR = process.env.STATE_DIR || '/e2e/state';
 const TRACKING_SECRET = process.env.TRACKING_SECRET || 'agumail-e2e-tracking-secret';
 const CODE_SECRET = process.env.CODE_SECRET || 'agumail-e2e-connect-secret';
 const SITE_KEY = process.env.SITE_KEY || 'site_e2e0000000000000000';
@@ -84,6 +90,7 @@ function freshControl() {
     connectPage: 'approve',
     codeTtlMs: 10 * 60 * 1000,
     storeSync: true,
+    siteScript: 'stub',
   };
 }
 
@@ -505,6 +512,13 @@ const SITE_JS = `(function(){
   queue.forEach(function(c){ var fn = window.agumail[c[0]]; if (fn) fn.apply(window.agumail, c.slice(1)); });
 })();`;
 
+/** The stub, or AguMail's real site runtime when a spec asked for it. */
+function siteScript() {
+  if (control.siteScript !== 'real') return SITE_JS;
+  const file = path.join(STATE_DIR, 'site-runtime.js');
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : SITE_JS;
+}
+
 const FORMS_JS = `(function(){
   if (window.AguMailForms) return;
   var origin = ${JSON.stringify(PUBLIC_URL)};
@@ -595,7 +609,7 @@ function controlRoute(req, res, url, body) {
       control.times = null;
       control.match = null;
     }
-    for (const k of ['delayMs', 'retryAfter', 'index', 'match', 'paths', 'times', 'integrationStatus', 'storeUrl', 'forms', 'apiKey', 'connectPage', 'codeTtlMs', 'storeSync']) {
+    for (const k of ['delayMs', 'retryAfter', 'index', 'match', 'paths', 'times', 'integrationStatus', 'storeUrl', 'forms', 'apiKey', 'connectPage', 'codeTtlMs', 'storeSync', 'siteScript']) {
       if (b[k] !== undefined) control[k] = b[k];
     }
     if (b.statuses && typeof b.statuses === 'object') {
@@ -684,7 +698,7 @@ function route(req, res, url, body) {
   const p = url.pathname;
   if (p.startsWith('/api/v1/')) return handleApi(req, res, url, body);
   if (p === '/connect/woocommerce' && req.method === 'GET') return connectPage(req, res, url);
-  if (p === '/p/_/v1/site.js') return send(res, 200, SITE_JS, { 'Content-Type': 'application/javascript; charset=utf-8' });
+  if (p === '/p/_/v1/site.js') return send(res, 200, siteScript(), { 'Content-Type': 'application/javascript; charset=utf-8' });
   if (p === '/embed/agumail-forms.js') return send(res, 200, FORMS_JS, { 'Content-Type': 'application/javascript; charset=utf-8' });
   if (/^\/api\/public\/site\/[^/]+\/events$/.test(p) && req.method === 'POST') return send(res, 200, { ok: true });
   if (p === '/stub/calls' && req.method === 'POST') return send(res, 200, { ok: true });

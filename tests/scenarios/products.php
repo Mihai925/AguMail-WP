@@ -60,6 +60,7 @@ function test_products_the_full_record() {
         'imageUrl'   => 'https://shop.test/img/501.jpg',
         'productUrl' => 'https://shop.test/?p=11',
         'categories' => array('Mugs', 'Home & Garden'),
+        'options'    => array(),
         'status'     => 'active',
         'sku'        => 'MUG-1',
         'source'     => 'woocommerce',
@@ -106,7 +107,8 @@ function test_products_a_scheduled_sale_syncs_from_cron() {
 
 function test_products_every_synced_field_counts_and_nothing_else_does() {
     $fields = array('name' => 'X', 'regular_price' => '1', 'sale_price' => '1', 'price' => '1', 'date_on_sale_from' => '2026-10-01',
-        'date_on_sale_to' => '2026-10-09', 'sku' => 'X-1', 'image_id' => 9, 'status' => 'private', 'category_ids' => array(3), 'slug' => 'x');
+        'date_on_sale_to' => '2026-10-09', 'sku' => 'X-1', 'image_id' => 9, 'status' => 'private', 'category_ids' => array(3), 'slug' => 'x',
+        'attributes' => array('size' => 'L'));
     $id = 100;
     foreach ($fields as $field => $value) {
         $product = agm_catalogue_product(++$id);
@@ -176,6 +178,69 @@ function test_products_a_variable_product_goes_with_its_lowest_stored_price() {
     });
     agm_drain();
     expect_same(array(8.0, 'TEE'), array(products_last_sent(20)['price'], products_last_sent(20)['sku']), 'wrong price or SKU for a variable product');
+}
+
+function products_painting() {
+    agm_catalogue_product(411, array('name' => 'Painting', 'price' => '34.99', 'children' => array(414, 415, 416)), 'Agm_Variable_Product');
+    agm_catalogue_product(414, array('name' => 'Painting', 'price' => '34.99', 'sku' => 'PC-8X10', 'image_id' => 9, 'parent_id' => 411,
+        'attributes' => array('attribute_pa_type' => 'Canvas', 'attribute_pa_size' => '8x10')), 'Agm_Variation_Product');
+    agm_catalogue_product(415, array('name' => 'Painting', 'price' => '89.99', 'sku' => '', 'image_id' => 0, 'parent_id' => 411,
+        'attributes' => array('attribute_pa_type' => 'Canvas', 'attribute_pa_size' => '16x20')), 'Agm_Variation_Product');
+    // Switched off in the product editor: the shopper cannot pick it.
+    agm_catalogue_product(416, array('name' => 'Painting', 'price' => '120', 'status' => 'private', 'parent_id' => 411,
+        'attributes' => array('attribute_pa_type' => 'Framed', 'attribute_pa_size' => '24x36')), 'Agm_Variation_Product');
+}
+
+function test_products_a_variable_product_goes_with_the_options_a_shopper_can_pick() {
+    // So a product view naming one can be checked against the catalogue for
+    // every shopper, whoever named them.
+    products_painting();
+    agm_request('admin: update the painting', 'admin', function () {
+        agm_admin_edit_product(wc_get_product(411), array(), array());
+    });
+    agm_drain();
+    expect_same(array(
+        array('externalId' => '414', 'title' => 'Canvas, 8x10', 'sku' => 'PC-8X10', 'price' => 34.99, 'imageUrl' => 'https://shop.test/img/9.jpg', 'productUrl' => 'https://shop.test/?p=414'),
+        array('externalId' => '415', 'title' => 'Canvas, 16x20', 'price' => 89.99, 'productUrl' => 'https://shop.test/?p=415'),
+    ), products_last_sent(411)['options'], 'wrong options');
+}
+
+function test_products_a_product_sends_at_most_a_hundred_options() {
+    $children = array();
+    for ($i = 1; $i <= 101; $i++) {
+        $children[] = 1000 + $i;
+        agm_catalogue_product(1000 + $i, array('price' => '10', 'parent_id' => 900, 'attributes' => array('size' => 'S' . $i)), 'Agm_Variation_Product');
+    }
+    agm_catalogue_product(900, array('name' => 'Poster', 'price' => '10', 'children' => $children), 'Agm_Variable_Product');
+    agm_request('admin: update the poster', 'admin', function () {
+        agm_admin_edit_product(wc_get_product(900), array(), array());
+    });
+    agm_drain();
+    expect_same(100, count(products_last_sent(900)['options']), 'more options were sent than AguMail takes');
+}
+
+function test_products_a_renamed_option_queues_its_product() {
+    products_painting();
+    $result = agm_request('admin: rename a size', 'admin', function () {
+        agm_save_product(wc_get_product(414), array('attributes' => array('attribute_pa_type' => 'Canvas', 'attribute_pa_size' => '8 x 10')));
+    });
+    expect_same(array('product:411'), array_column($result['writes'], 'name'), 'renaming an option did not queue its product');
+}
+
+function test_products_an_update_sends_products_with_options_once_so_the_catalogue_learns_them() {
+    // Stores connected before options were sent hold their products without
+    // them until each is sent again.
+    products_catalogue();
+    products_painting();
+    delete_option('agumail_catalogue_version');
+    delete_transient('agumail_maintained');
+    agm_grant('manage_woocommerce');
+    agm_request('the first admin page after the update', 'admin', function () { do_action('admin_init'); });
+    expect_same(array('20', '411'), products_queued_ids(), 'the products with options were not queued');
+    agm_drain();
+    delete_transient('agumail_maintained');
+    agm_request('the next admin page', 'admin', function () { do_action('admin_init'); });
+    expect_same(array(), products_queued_ids(), 'the products were queued again');
 }
 
 // ── Checkout ──

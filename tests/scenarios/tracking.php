@@ -123,6 +123,125 @@ function test_tracking_is_not_added_to_admin_pages() {
     expect_same(false, isset($GLOBALS['agm']['scripts']['agumail-site']), 'the site script was added to wp-admin');
 }
 
+// ── The product on the page ──
+//
+// The script is told which product a page is about by WooCommerce itself, on
+// every theme and whatever an SEO plugin says about the page. A product with
+// options also carries each option, so the script can record the one the
+// shopper picks with its own price, picture and link.
+
+/** The element the footer prints for the product being viewed, or ''. */
+function tracking_product_on_page(callable $before = null) {
+    $html = '';
+    agm_request('product page', 'shopper', function () use ($before, &$html) {
+        do_action('init');
+        if ($before) {
+            $before();
+        }
+        $html = agm_capture(function () { do_action('wp_footer'); });
+    });
+    return preg_match('/<span hidden data-agm-product[^>]*><\/span>/', $html, $match) ? $match[0] : '';
+}
+
+function tracking_attribute($element, $name) {
+    return preg_match('/\s' . preg_quote($name, '/') . '="([^"]*)"/', $element, $m) ? html_entity_decode($m[1], ENT_QUOTES) : null;
+}
+
+function tracking_painting() {
+    $parent = agm_wc_persist(new WC_Product_Variable(411, array(
+        'name' => 'Personalized Watercolor Painting', 'price' => '34.99', 'image_id' => 9, 'children' => array(414, 415),
+    )));
+    agm_product(414, 'Personalized Watercolor Painting', '34.99', array(
+        'type' => 'variation', 'parent_id' => 411, 'sku' => 'PC-8X10', 'image_id' => 9, 'attributes' => array('attribute_pa_type' => 'Canvas', 'attribute_pa_size' => '8x10'),
+    ));
+    agm_product(415, 'Personalized Watercolor Painting', '89.99', array(
+        'type' => 'variation', 'parent_id' => 411, 'sku' => 'PC-16X20', 'image_id' => 12, 'attributes' => array('attribute_pa_type' => 'Canvas', 'attribute_pa_size' => '16x20'),
+    ));
+    return $parent;
+}
+
+function test_tracking_a_product_page_names_its_product() {
+    update_option('agumail_config', tracking_config());
+    agm_product(40, 'Linen Tote', '24.5', array('sku' => 'AGM-TOTE'));
+    $GLOBALS['agm']['page']       = 'product';
+    $GLOBALS['agm']['queried_id'] = 40;
+    $element = tracking_product_on_page();
+    expect_same('40', tracking_attribute($element, 'data-agm-product'), 'the product was not named: ' . $element);
+    expect_same('AGM-TOTE', tracking_attribute($element, 'data-agm-sku'), 'wrong SKU: ' . $element);
+    expect_same('Linen Tote', tracking_attribute($element, 'data-agm-title'), 'wrong title: ' . $element);
+    expect_same('24.5', tracking_attribute($element, 'data-agm-price'), 'wrong price: ' . $element);
+    expect_same('EUR', tracking_attribute($element, 'data-agm-currency'), 'wrong currency: ' . $element);
+    expect_same(null, tracking_attribute($element, 'data-agm-options'), 'a product without options carried some: ' . $element);
+}
+
+function test_tracking_a_product_with_options_carries_each_one() {
+    update_option('agumail_config', tracking_config());
+    tracking_painting();
+    $GLOBALS['agm']['page']       = 'product';
+    $GLOBALS['agm']['queried_id'] = 411;
+    $element = tracking_product_on_page();
+    expect_same('34.99', tracking_attribute($element, 'data-agm-price'), 'the product is not at its lowest price: ' . $element);
+    $options = json_decode((string) tracking_attribute($element, 'data-agm-options'), true);
+    expect_same(array(
+        '414' => array('sku' => 'PC-8X10', 'price' => '34.99', 'option' => 'Canvas, 8x10', 'imageUrl' => 'https://shop.test/img/9.jpg', 'url' => 'https://shop.test/?p=414'),
+        '415' => array('sku' => 'PC-16X20', 'price' => '89.99', 'option' => 'Canvas, 16x20', 'imageUrl' => 'https://shop.test/img/12.jpg', 'url' => 'https://shop.test/?p=415'),
+    ), $options, 'wrong options: ' . $element);
+}
+
+function test_tracking_options_past_woocommerces_own_limit_are_left_to_the_page() {
+    // WooCommerce stops printing a product's options past this limit to keep
+    // the page light, and so do we: the script reads them off WooCommerce then.
+    update_option('agumail_config', tracking_config());
+    tracking_painting();
+    add_filter('woocommerce_ajax_variation_threshold', function () { return 1; });
+    $GLOBALS['agm']['page']       = 'product';
+    $GLOBALS['agm']['queried_id'] = 411;
+    $element = tracking_product_on_page();
+    expect_same('411', tracking_attribute($element, 'data-agm-product'), 'the product was not named: ' . $element);
+    expect_same('{}', tracking_attribute($element, 'data-agm-options'), 'options past the limit were printed: ' . $element);
+}
+
+function test_tracking_a_product_shown_on_another_page_is_named_once() {
+    // [product_page id=40] and the Single Product block show a product on a
+    // page that is not its own, where is_product() is false.
+    update_option('agumail_config', tracking_config());
+    agm_product(40, 'Linen Tote', '24.5');
+    agm_product(41, 'Ceramic Mug', '12');
+    $element = tracking_product_on_page(function () {
+        $GLOBALS['product'] = wc_get_product(40);
+        do_action('woocommerce_after_single_product');
+        $GLOBALS['product'] = wc_get_product(41);
+        do_action('woocommerce_after_single_product');
+    });
+    expect_same('40', tracking_attribute($element, 'data-agm-product'), 'the first product shown was not the one named: ' . $element);
+}
+
+function test_tracking_no_product_is_named_off_a_product_page_or_without_tracking() {
+    agm_product(40, 'Linen Tote', '24.5');
+    update_option('agumail_config', tracking_config());
+    $GLOBALS['agm']['page'] = 'shop';
+    expect_same('', tracking_product_on_page(), 'a product was named on the shop page');
+
+    $GLOBALS['agm']['page']       = 'product';
+    $GLOBALS['agm']['queried_id'] = 40;
+    update_option('agumail_tracking_enabled', 'no');
+    expect_same('', tracking_product_on_page(), 'a product was named with tracking off');
+
+    update_option('agumail_tracking_enabled', 'yes');
+    update_option('agumail_config', tracking_config(array('siteKey' => null)));
+    expect_same('', tracking_product_on_page(), 'a product was named with no site to report to');
+}
+
+function test_tracking_the_product_element_is_escaped() {
+    update_option('agumail_config', tracking_config());
+    agm_product(40, '"><script>alert(1)</script> Tote &amp; Bag', '24.5');
+    $GLOBALS['agm']['page']       = 'product';
+    $GLOBALS['agm']['queried_id'] = 40;
+    $element = tracking_product_on_page();
+    expect_that(strpos($element, '<script') === false, 'the title broke out of its attribute: ' . $element);
+    expect_same('">alert(1) Tote & Bag', tracking_attribute($element, 'data-agm-title'), 'the title was not cleaned as the catalogue cleans it: ' . $element);
+}
+
 // ── Identify ──
 
 function test_tracking_signature_matches_known_hmac_vectors() {

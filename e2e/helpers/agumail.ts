@@ -48,6 +48,7 @@ export type ProductRecord = {
   imageUrl?: string;
   productUrl?: string;
   categories?: string[];
+  options?: { externalId: string; title: string; sku?: string; price?: number; imageUrl?: string; productUrl?: string }[];
 };
 
 /** A record with the request that carried it. */

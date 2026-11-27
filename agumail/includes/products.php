@@ -21,8 +21,13 @@
  *     rewrites its post (a regenerated title) even when only its stock moved,
  *     and that must queue nothing while an order is placed.
  * Renaming a category queues the products filed under it.
- * A variation is not a product of AguMail's catalogue: a change to one queues
- * its parent, whose price is the lowest of its variations.
+ * A variation is not a product of AguMail's catalogue but one of its options:
+ * a change to one queues its parent, which carries its options (each with its
+ * own name, SKU, price, picture and link) and the lowest of their prices.
+ *
+ * When what a record carries grows, AGUMAIL_CATALOGUE_VERSION goes up, and the
+ * first maintenance after the update sends the products the new field is
+ * about once, so a store connected before learns it without a full sync.
  *
  * @package AguMail
  */
@@ -46,8 +51,12 @@ function agumail_product_synced_props() {
 		'category_ids',
 		'slug',
 		'catalog_visibility',
+		'attributes',
 	);
 }
+
+/** Raised when a product record gains a field, so stores already connected send it (agumail_product_catch_up()). */
+define( 'AGUMAIL_CATALOGUE_VERSION', 2 );
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Saves through WooCommerce.
@@ -427,12 +436,89 @@ function agumail_product_record( $product ) {
 		$record['productUrl'] = $url;
 	}
 	$record['categories'] = agumail_product_categories( $product );
+	$record['options']    = agumail_product_options( $product, AGUMAIL_MAX_OPTIONS );
 	$visible              = 'hidden' !== $product->get_catalog_visibility();
 	$record['status']     = 'publish' === $product->get_status() && $visible ? 'active' : 'archived';
 	$sku                  = agumail_clamp_sku( $product->get_sku() );
 	$record['sku']        = null !== $sku ? $sku : '';
 	$record['source']     = 'woocommerce';
 	return $record;
+}
+
+/**
+ * The options a shopper can pick on a product (its published variations), at
+ * most $limit, each as AguMail takes one: its id, its name as WooCommerce
+ * prints it flat ("Canvas, 16x20"), and its SKU, price, picture and link when
+ * it has them. The link opens the product with the option picked. A product
+ * without options has none.
+ *
+ * @param WC_Product $product The product.
+ * @param int        $limit   The most options read.
+ * @return array[]
+ */
+function agumail_product_options( $product, $limit ) {
+	$options = array();
+	if ( ! $product->is_type( 'variable' ) ) {
+		return $options;
+	}
+	$children = array_slice( array_map( 'intval', (array) $product->get_children() ), 0, max( 0, (int) $limit ) );
+	if ( $children && function_exists( '_prime_post_caches' ) ) {
+		_prime_post_caches( $children );
+	}
+	foreach ( $children as $child_id ) {
+		$option = wc_get_product( $child_id );
+		if ( ! $option instanceof WC_Product || ! $option->is_type( 'variation' ) || 'publish' !== $option->get_status() ) {
+			continue;
+		}
+		$title = agumail_catalogue_text( wc_get_formatted_variation( $option, true, false, false ), AGUMAIL_MAX_TITLE );
+		if ( '' === $title ) {
+			continue;
+		}
+		$record = array(
+			'externalId' => (string) $option->get_id(),
+			'title'      => $title,
+		);
+		$sku    = agumail_clamp_sku( $option->get_sku() );
+		if ( null !== $sku ) {
+			$record['sku'] = $sku;
+		}
+		$price = $option->get_price( 'edit' );
+		if ( is_numeric( $price ) ) {
+			$record['price'] = agumail_money( $price );
+		}
+		$image = agumail_product_image_url( $option );
+		if ( $image ) {
+			$record['imageUrl'] = $image;
+		}
+		$url = agumail_clamp_url( $option->get_permalink() );
+		if ( $url ) {
+			$record['productUrl'] = $url;
+		}
+		$options[] = $record;
+	}
+	return $options;
+}
+
+/**
+ * Sends, once after an update that raised AGUMAIL_CATALOGUE_VERSION, the
+ * products whose record gained something: since version 2, products with
+ * options. A store not connected yet sends its whole catalogue when it
+ * connects, records and all, so it has nothing to catch up on.
+ */
+function agumail_product_catch_up() {
+	if ( (int) get_option( 'agumail_catalogue_version', 0 ) >= AGUMAIL_CATALOGUE_VERSION || ! function_exists( 'wc_get_products' ) ) {
+		return;
+	}
+	$ids = wc_get_products(
+		array(
+			'type'   => 'variable',
+			'status' => array( 'publish', 'private', 'draft', 'pending' ),
+			'limit'  => -1,
+			'return' => 'ids',
+		)
+	);
+	agumail_product_queue_many( (array) $ids );
+	update_option( 'agumail_catalogue_version', AGUMAIL_CATALOGUE_VERSION, false );
 }
 
 /**
