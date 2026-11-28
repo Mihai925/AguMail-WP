@@ -624,13 +624,14 @@ function test_shopper_path_a_queued_change_is_one_write_and_no_call() {
 
 // ── Form plugin signups ──
 // A visitor submits a form built with Elementor Pro (admin-ajax.php), Contact
-// Form 7 (its REST feedback endpoint) or WPForms (admin-ajax.php, or a plain
-// post to the page). Each is played with the form plugin's own hooks around
-// the AguMail adapter's.
+// Form 7 (its REST feedback endpoint), WPForms (admin-ajax.php, or a plain
+// post to the page) or Gravity Forms (a plain post to the page, or
+// admin-ajax.php). Each is played with the form plugin's own hooks around the
+// AguMail adapter's.
 
 /** The form plugins' fakes, and tracking on, so the answer also names the visitor (no write, no call either). */
 function shopper_path_builder_fakes() {
-    foreach (array('elementor', 'cf7', 'wpforms') as $builder) {
+    foreach (array('elementor', 'cf7', 'wpforms', 'gravityforms') as $builder) {
         require_once dirname(__DIR__) . '/fakes/builders/' . $builder . '.php';
     }
     update_option('agumail_config', array('siteKey' => 'site_abc123', 'siteScriptUrl' => 'https://api.agumail.test/p/_/v1/site.js', 'identifySecret' => 'secret'));
@@ -740,4 +741,41 @@ function test_shopper_path_only_http_php_calls_out($plugin_dir) {
         }
     }
     expect_that(!$offenders, 'outbound HTTP outside includes/http.php: ' . implode(', ', $offenders));
+}
+
+function test_shopper_path_a_gravity_forms_signup_is_quiet_by_a_plain_post_and_by_ajax() {
+    shopper_path_builder_fakes();
+    $form = agm_gf_form(2, 'Guide', array(
+        agm_gf_field(1, 'text', 'First Name'),
+        agm_gf_field(3, 'text', 'Last Name'),
+        agm_gf_field(4, 'email', 'Email'),
+        agm_gf_field(5, 'phone', 'Phone'),
+    ), array('enabled' => '1', 'tags' => 'Headshot Guide Requests'));
+    $entry = agm_gf_entry(2, array('1' => 'Ada', '3' => 'Lovelace', '4' => 'ada@example.com', '5' => '555 0100'));
+
+    // Gravity Forms handles a plain post during the page load, then redirects or shows its confirmation.
+    $name = 'gravity forms posted to its page';
+    shopper_path_expect_quiet(agm_request($name, 'shopper', function () use ($form, $entry) {
+        agm_input(array(), array('gform_submit' => '2', 'is_submit_2' => '1', 'input_4' => 'ada@example.com'));
+        agm_gf_activate();
+        shopper_path_page(function () use ($form, $entry) {
+            agm_gf_submit($form, $entry);
+        });
+    }));
+    shopper_path_signup_count($name, 1);
+
+    $entry['4'] = 'bea@example.com';
+    $name = 'gravity forms submitted through admin-ajax';
+    shopper_path_expect_quiet(agm_request($name, 'shopper_ajax', function () use ($form, $entry) {
+        agm_input(array(), array('action' => 'gform_submit_form', 'form_id' => '2', 'gform_ajax_nonce' => 'abc'));
+        agm_gf_activate();
+        do_action('plugins_loaded');
+        do_action('init');
+        do_action('admin_init');
+        $result = agm_gf_submit($form, $entry);
+        do_action('shutdown');
+        wp_send_json_success($result);
+    }));
+    shopper_path_signup_count($name, 2);
+    expect_that(!empty(end($GLOBALS['agm']['json'])['body']['data']['agumail']['sig']), 'the AJAX answer does not name the visitor');
 }

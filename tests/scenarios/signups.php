@@ -281,6 +281,15 @@ function test_signups_the_form_plugins_section_names_each_active_builder() {
     expect_that(strpos($html, '<form') === false && strpos($html, '<input') === false, 'the section should be read-only');
 }
 
+function test_signups_the_form_plugins_section_names_gravity_forms_when_it_is_active() {
+    require_once dirname(__DIR__) . '/fakes/builders/gravityforms.php';
+    agm_gf_activate();
+    agm_p4_merchant();
+    $html = agm_p4_section('signups');
+    expect_that(strpos($html, 'Gravity Forms: edit the form, open Settings &gt; AguMail and switch on Send signups to AguMail.') !== false, 'Gravity Forms is not named: ' . $html);
+    expect_that(strpos($html, 'WPForms') === false, 'an inactive builder is named');
+}
+
 function test_signups_the_form_plugins_section_says_when_the_store_is_not_connected() {
     define('ELEMENTOR_PRO_VERSION', '4.0.3');
     unset($GLOBALS['agm']['options']['agumail_api_key']);

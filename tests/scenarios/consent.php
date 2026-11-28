@@ -50,13 +50,13 @@ function test_consent_declares_hpos_and_block_checkout_support() {
 
 function test_consent_the_plugin_header_names_the_versions_it_needs($plugin_dir) {
     $header = file_get_contents($plugin_dir . '/agumail.php', false, null, 0, 2048);
-    foreach (array('Plugin Name:          AguMail: Email Marketing Made Easy', 'Version:              1.0.3', 'Requires at least:    6.5',
+    foreach (array('Plugin Name:          AguMail: Email Marketing Made Easy', 'Version:              1.1.0', 'Requires at least:    6.5',
         'Requires PHP:         7.4', 'WC requires at least: 8.0', 'WC tested up to:      11.2') as $line) {
         expect_that(strpos($header, $line) !== false, 'the plugin header is missing "' . $line . '"');
     }
     // It runs on any WordPress site, so WordPress must not hold it back without WooCommerce.
     expect_that(strpos($header, 'Requires Plugins') === false, 'the plugin header still requires WooCommerce');
-    expect_same('1.0.3', AGUMAIL_VERSION, 'wrong AGUMAIL_VERSION');
+    expect_same('1.1.0', AGUMAIL_VERSION, 'wrong AGUMAIL_VERSION');
     // WordPress.org refuses a version that is not digits and dots, and serves the readme's Stable tag.
     expect_that(preg_match('/^\d+(\.\d+)*$/', AGUMAIL_VERSION) === 1, 'AGUMAIL_VERSION is not digits and dots');
     $readme = file_get_contents($plugin_dir . '/readme.txt');

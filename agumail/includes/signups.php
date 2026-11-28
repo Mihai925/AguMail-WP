@@ -1,10 +1,10 @@
 <?php
 /**
  * Form signups: people who sign up through the store's own form plugins
- * (Elementor Pro, Contact Form 7 and WPForms). Each plugin's adapter, in
- * includes/integrations, reads a submitted form and hands the person to
- * agumail_signup_enqueue(), which records them with one outbox write and
- * nothing else. The drain sends them to /api/v1/signups later.
+ * (Elementor Pro, Contact Form 7, WPForms and Gravity Forms). Each plugin's
+ * adapter, in includes/integrations, reads a submitted form and hands the
+ * person to agumail_signup_enqueue(), which records them with one outbox
+ * write and nothing else. The drain sends them to /api/v1/signups later.
  *
  * AguMail treats these as it treats its own signup forms, not as a customer
  * sync: someone already subscribed gets nothing new, a double opt-in form
@@ -34,7 +34,7 @@ add_action( 'agumail_drain_sent', 'agumail_signups_sent', 10, 3 );
 
 /** The form plugins AguMail takes signups from, by the name the API knows them by. */
 function agumail_signup_builders() {
-	return array( 'elementor', 'cf7', 'wpforms' );
+	return array( 'elementor', 'cf7', 'wpforms', 'gravityforms' );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -341,9 +341,10 @@ function agumail_signups_sent( $endpoint, $count, $response ) {
 /** The active form plugins AguMail works with, as builder names. */
 function agumail_signups_active_builders() {
 	$active = array(
-		'elementor' => defined( 'ELEMENTOR_PRO_VERSION' ),
-		'cf7'       => defined( 'WPCF7_VERSION' ),
-		'wpforms'   => defined( 'WPFORMS_VERSION' ),
+		'elementor'    => defined( 'ELEMENTOR_PRO_VERSION' ),
+		'cf7'          => defined( 'WPCF7_VERSION' ),
+		'wpforms'      => defined( 'WPFORMS_VERSION' ),
+		'gravityforms' => class_exists( 'GFForms' ),
 	);
 	return array_keys( array_filter( $active ) );
 }
@@ -371,9 +372,10 @@ function agumail_signups_register_admin() {
  */
 function agumail_signups_render_section() {
 	$where = array(
-		'elementor' => __( 'Elementor Pro: edit the form, add AguMail under Actions After Submit, then set its tags and fields in the AguMail section.', 'agumail' ),
-		'cf7'       => __( 'Contact Form 7: edit the form, open the AguMail tab and tick Send signups to AguMail.', 'agumail' ),
-		'wpforms'   => __( 'WPForms: edit the form, open Settings > AguMail and switch on Send signups to AguMail.', 'agumail' ),
+		'elementor'    => __( 'Elementor Pro: edit the form, add AguMail under Actions After Submit, then set its tags and fields in the AguMail section.', 'agumail' ),
+		'cf7'          => __( 'Contact Form 7: edit the form, open the AguMail tab and tick Send signups to AguMail.', 'agumail' ),
+		'wpforms'      => __( 'WPForms: edit the form, open Settings > AguMail and switch on Send signups to AguMail.', 'agumail' ),
+		'gravityforms' => __( 'Gravity Forms: edit the form, open Settings > AguMail and switch on Send signups to AguMail.', 'agumail' ),
 	);
 	echo '<p>' . esc_html__( 'Signups from your form plugins can go to AguMail. Switch it on in each form:', 'agumail' ) . '</p><ul class="ul-disc">';
 	foreach ( agumail_signups_active_builders() as $builder ) {
@@ -432,8 +434,8 @@ function agumail_signup_may_sign() {
 
 /**
  * The identity of the signup this request queued, for a form plugin whose
- * answer is built after its submit hook ran (Contact Form 7, WPForms). A call
- * with an identity keeps it; one without reads it back.
+ * answer is built after its submit hook ran (Contact Form 7, WPForms, Gravity
+ * Forms). A call with an identity keeps it; one without reads it back.
  *
  * @param array|null $identity The identity to keep, or null to read it.
  */
@@ -459,8 +461,12 @@ function agumail_signups_enqueue_identify() {
  *   Elementor Pro    jQuery "submit_success" (event, response.data), data.agumail
  *   Contact Form 7   "wpcf7mailsent" / "wpcf7mailfailed", detail.apiResponse.agumail
  *   WPForms          jQuery "wpformsAjaxSubmitSuccess" (event, response), data.agumail
+ *   Gravity Forms    gform.utils filter "gform/ajax/post_submission_request",
+ *                    submissionResult.data.agumail
  * The jQuery events are bound once the page has loaded, since a theme may
- * load jQuery in the footer.
+ * load jQuery in the footer. The Gravity Forms filter waits for its scripts
+ * through gform.initializeOnLoaded, and runs before Gravity Forms follows a
+ * redirect confirmation; it hands the result back as it came.
  */
 function agumail_signups_identify_js() {
 	return '(function(){var s=document.getElementById("' . AGUMAIL_SITE_HANDLE . '-js");'
@@ -472,5 +478,8 @@ function agumail_signups_identify_js() {
 		. 'function jq(){var $=window.jQuery;if(!$)return;'
 		. '$(document).on("submit_success",function(e,r){identify(r&&r.data&&r.data.agumail);});'
 		. '$(document).on("wpformsAjaxSubmitSuccess",function(e,r){identify(r&&r.data&&r.data.agumail);});}'
-		. 'if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",jq);}else{jq();}})();';
+		. 'var gfDone=false;function gf(){var g=window.gform;if(gfDone||!g||!g.utils||!g.utils.addFilter)return;gfDone=true;'
+		. 'g.utils.addFilter("gform/ajax/post_submission_request",function(d){var r=d&&d.submissionResult;identify(r&&r.data&&r.data.agumail);return d;});}'
+		. 'function loaded(){jq();if(window.gform&&window.gform.initializeOnLoaded){window.gform.initializeOnLoaded(gf);}}'
+		. 'if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",loaded);}else{loaded();}})();';
 }

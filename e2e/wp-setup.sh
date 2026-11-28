@@ -160,10 +160,10 @@ cmd_cron() {
   esac
 }
 
-# The form plugins the signup specs use. Elementor and Elementor Pro are mounted (ELEMENTOR_DIR,
-# ELEMENTOR_PRO_DIR); the other two come from wordpress.org. All four stay inactive unless a spec
-# (or `builders on`) switches them on, so the timing specs never load them.
-BUILDER_PLUGINS=(elementor elementor-pro contact-form-7 wpforms-lite)
+# The form plugins the signup specs use. Elementor, Elementor Pro and Gravity Forms are mounted
+# (ELEMENTOR_DIR, ELEMENTOR_PRO_DIR, GRAVITYFORMS_DIR); the other two come from wordpress.org. All five
+# stay inactive unless a spec (or `builders on`) switches them on, so the timing specs never load them.
+BUILDER_PLUGINS=(elementor elementor-pro contact-form-7 wpforms-lite gravityforms)
 
 cmd_builders() {
   case "${1:-}" in
@@ -171,8 +171,8 @@ cmd_builders() {
       for p in contact-form-7 wpforms-lite; do
         wp plugin is-installed "$p" 2>/dev/null || wp plugin install "$p" --quiet
       done
-      for p in elementor elementor-pro; do
-        wp plugin is-installed "$p" 2>/dev/null || { echo "$p is not mounted: check ELEMENTOR_DIR and ELEMENTOR_PRO_DIR in .env" >&2; exit 1; }
+      for p in elementor elementor-pro gravityforms; do
+        wp plugin is-installed "$p" 2>/dev/null || { echo "$p is not mounted: check ELEMENTOR_DIR, ELEMENTOR_PRO_DIR and GRAVITYFORMS_DIR in .env" >&2; exit 1; }
       done
       echo "Form plugins installed (inactive): ${BUILDER_PLUGINS[*]}"
       ;;

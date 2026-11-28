@@ -54,3 +54,13 @@ if (isset($_COOKIE['agumail_e2e_plugins_off']) && $_COOKIE['agumail_e2e_plugins_
         }));
     }, PHP_INT_MAX);
 }
+
+// Gravity Forms sends a form by its own AJAX (admin-ajax.php, a JSON answer) only when the page asks for
+// it; a shortcode's ajax="true" still means the older iframe. wp/builders.php names the form that should.
+add_filter('gform_form_args', function ($args) {
+    $ajax_form = (int) get_option('agumail_e2e_gf_ajax_form');
+    if ($ajax_form && isset($args['form_id']) && (int) $args['form_id'] === $ajax_form) {
+        $args['submission_method'] = 'ajax';
+    }
+    return $args;
+});

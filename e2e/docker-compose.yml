@@ -80,6 +80,7 @@ services:
       - ${CHECKOUTWC_DIR:-/home/mihai/Projects/pixel-woo/wp-content/plugins/checkout-for-woocommerce}:/var/www/html/wp-content/plugins/checkout-for-woocommerce:ro
       - ${ELEMENTOR_DIR:-/home/mihai/Projects/pixel-woo/wp-content/plugins/elementor}:/var/www/html/wp-content/plugins/elementor:ro
       - ${ELEMENTOR_PRO_DIR:-/home/mihai/Projects/pixel-woo/wp-content/plugins/elementor-pro}:/var/www/html/wp-content/plugins/elementor-pro:ro
+      - ${GRAVITYFORMS_DIR:-/home/mihai/Projects/gravity-forms/gravityforms}:/var/www/html/wp-content/plugins/gravityforms:ro
       - ./mu-plugins:/var/www/html/wp-content/mu-plugins:ro
       - ./wp:/e2e/wp:ro
       - ./.state:/e2e/state
@@ -104,6 +105,7 @@ services:
       - ${CHECKOUTWC_DIR:-/home/mihai/Projects/pixel-woo/wp-content/plugins/checkout-for-woocommerce}:/var/www/html/wp-content/plugins/checkout-for-woocommerce:ro
       - ${ELEMENTOR_DIR:-/home/mihai/Projects/pixel-woo/wp-content/plugins/elementor}:/var/www/html/wp-content/plugins/elementor:ro
       - ${ELEMENTOR_PRO_DIR:-/home/mihai/Projects/pixel-woo/wp-content/plugins/elementor-pro}:/var/www/html/wp-content/plugins/elementor-pro:ro
+      - ${GRAVITYFORMS_DIR:-/home/mihai/Projects/gravity-forms/gravityforms}:/var/www/html/wp-content/plugins/gravityforms:ro
       - ./mu-plugins:/var/www/html/wp-content/mu-plugins:ro
       - ./wp:/e2e/wp:ro
       - ./.state:/e2e/state

@@ -13,6 +13,13 @@
  *   WPForms Lite    form "AguMail e2e newsletter" (AJAX) on page agumail-e2e-wpforms: a first and last
  *                   Name field, Email and a Newsletter checkbox mapped as the consent; AguMail on,
  *                   tags "news, e2e", double opt-in on
+ *   Gravity Forms   form "AguMail e2e guide" on page agumail-e2e-gravityforms-guide, the pilot's lead
+ *                   form: First Name, Last Name, Email and Phone (separate, all required), Gravity Forms'
+ *                   honeypot marking spam, a Redirect confirmation to a PDF in uploads; AguMail on,
+ *                   tags "Headshot Guide Requests", single opt-in, nothing mapped. And form "AguMail e2e
+ *                   gf newsletter" on page agumail-e2e-gravityforms, sent by Gravity Forms' own AJAX
+ *                   (the mu-plugin sets submission_method for it): a Name field, Email and an optional
+ *                   Consent field; AguMail on, tags "news, e2e", double opt-in on, text confirmation
  *
  * Writes /e2e/state/builders.json for the specs.
  */
@@ -148,6 +155,102 @@ $form_data = array(
 wp_update_post(array('ID' => $wpforms_id, 'post_title' => $wpforms_title, 'post_status' => 'publish', 'post_content' => wpforms_encode($form_data)));
 $wpforms_page = agumail_e2e_builder_page('agumail-e2e-wpforms', 'Signup (WPForms)', "<!-- wp:shortcode -->\n[wpforms id=\"{$wpforms_id}\" title=\"false\"]\n<!-- /wp:shortcode -->");
 $builders['wpforms'] = array('formId' => $wpforms_id, 'title' => $wpforms_title, 'pageId' => $wpforms_page, 'url' => get_permalink($wpforms_page));
+
+// ── Gravity Forms ────────────────────────────────────────────────────────────
+
+if (!class_exists('GFAPI')) {
+    WP_CLI::error('Gravity Forms must be active.');
+}
+// The setup wizard would otherwise take over wp-admin's Forms pages.
+update_option('gform_pending_installation', false);
+gf_upgrade()->maybe_upgrade();
+
+function agumail_e2e_gf_form($title, array $form) {
+    $form['title'] = $title;
+    // GFAPI::update_form() saves the active flag from the form itself, and treats a missing one as inactive.
+    $form['is_active'] = true;
+    foreach (GFAPI::get_forms(null) as $existing) {
+        if ($existing['title'] === $title) {
+            $form['id'] = (int) $existing['id'];
+            $result = GFAPI::update_form($form);
+            if (is_wp_error($result)) {
+                WP_CLI::error('Gravity Forms did not save "' . $title . '": ' . $result->get_error_message());
+            }
+            return (int) $existing['id'];
+        }
+    }
+    $id = GFAPI::add_form($form);
+    if (is_wp_error($id)) {
+        WP_CLI::error('Gravity Forms did not add "' . $title . '": ' . $id->get_error_message());
+    }
+    return (int) $id;
+}
+
+// The guide the pilot's form redirects to: a one-page PDF.
+$uploads = wp_upload_dir();
+$pdf_path = trailingslashit($uploads['basedir']) . 'agumail-e2e-guide.pdf';
+$pdf_url = trailingslashit($uploads['baseurl']) . 'agumail-e2e-guide.pdf';
+file_put_contents($pdf_path, "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n");
+
+$gf_guide_title = 'AguMail e2e guide';
+$gf_guide_id = agumail_e2e_gf_form($gf_guide_title, array(
+    'description'    => 'Enter your information below for immediate access to the guide.',
+    'labelPlacement' => 'top_label',
+    'button'         => array('type' => 'text', 'text' => 'Get the guide'),
+    'fields'         => array(
+        array('id' => 1, 'type' => 'text', 'label' => 'First Name', 'isRequired' => true),
+        array('id' => 3, 'type' => 'text', 'label' => 'Last Name', 'isRequired' => true),
+        array('id' => 4, 'type' => 'email', 'label' => 'Email', 'isRequired' => true),
+        array('id' => 5, 'type' => 'phone', 'label' => 'Phone', 'isRequired' => true, 'phoneFormat' => 'international'),
+    ),
+    'enableHoneypot' => true,
+    'honeypotAction' => 'spam',
+    'confirmations'  => array(
+        'agm1' => array('id' => 'agm1', 'name' => 'Default Confirmation', 'isDefault' => true, 'type' => 'redirect', 'url' => $pdf_url, 'queryString' => '', 'message' => ''),
+    ),
+    'notifications'  => array(),
+    'agumail'        => array('enabled' => '1', 'tags' => 'Headshot Guide Requests', 'double_opt_in' => '0', 'field_email' => '', 'field_name' => '', 'field_phone' => '', 'field_consent' => ''),
+));
+$gf_guide_page = agumail_e2e_builder_page('agumail-e2e-gravityforms-guide', 'Guide (Gravity Forms)', "<!-- wp:shortcode -->\n[gravityform id=\"{$gf_guide_id}\" title=\"false\" description=\"false\"]\n<!-- /wp:shortcode -->");
+
+$gf_news_title = 'AguMail e2e gf newsletter';
+$gf_news_id = agumail_e2e_gf_form($gf_news_title, array(
+    'description'    => '',
+    'labelPlacement' => 'top_label',
+    'button'         => array('type' => 'text', 'text' => 'Sign up'),
+    'fields'         => array(
+        array('id' => 1, 'type' => 'name', 'label' => 'Name', 'nameFormat' => 'advanced', 'inputs' => array(
+            array('id' => '1.2', 'label' => 'Prefix', 'name' => '', 'isHidden' => true, 'inputType' => 'radio', 'choices' => array()),
+            array('id' => '1.3', 'label' => 'First', 'name' => ''),
+            array('id' => '1.4', 'label' => 'Middle', 'name' => '', 'isHidden' => true),
+            array('id' => '1.6', 'label' => 'Last', 'name' => ''),
+            array('id' => '1.8', 'label' => 'Suffix', 'name' => '', 'isHidden' => true),
+        )),
+        array('id' => 2, 'type' => 'email', 'label' => 'Email', 'isRequired' => true),
+        array('id' => 4, 'type' => 'consent', 'label' => 'Consent', 'checkboxLabel' => 'Send me offers and news', 'isRequired' => false,
+            'choices' => array(array('text' => 'Checked', 'value' => '1', 'price' => '')),
+            'inputs'  => array(
+                array('id' => '4.1', 'label' => 'Consent', 'name' => ''),
+                array('id' => '4.2', 'label' => 'Text', 'name' => '', 'isHidden' => true),
+                array('id' => '4.3', 'label' => 'Description', 'name' => '', 'isHidden' => true),
+            )),
+    ),
+    'confirmations'  => array(
+        'agm1' => array('id' => 'agm1', 'name' => 'Default Confirmation', 'isDefault' => true, 'type' => 'message', 'message' => 'Thanks for signing up!'),
+    ),
+    'notifications'  => array(),
+    'agumail'        => array('enabled' => '1', 'tags' => 'news, e2e', 'double_opt_in' => '1', 'field_email' => '', 'field_name' => '', 'field_phone' => '', 'field_consent' => ''),
+));
+// The mu-plugin sends this form by Gravity Forms' own AJAX (admin-ajax.php, a JSON answer).
+update_option('agumail_e2e_gf_ajax_form', $gf_news_id);
+$gf_news_page = agumail_e2e_builder_page('agumail-e2e-gravityforms', 'Signup (Gravity Forms)', "<!-- wp:shortcode -->\n[gravityform id=\"{$gf_news_id}\" title=\"false\" description=\"false\"]\n<!-- /wp:shortcode -->");
+$builders['gravityforms'] = array(
+    'formId'  => $gf_news_id,
+    'title'   => $gf_news_title,
+    'pageId'  => $gf_news_page,
+    'url'     => get_permalink($gf_news_page),
+    'guide'   => array('formId' => $gf_guide_id, 'title' => $gf_guide_title, 'pageId' => $gf_guide_page, 'url' => get_permalink($gf_guide_page), 'pdfUrl' => $pdf_url),
+);
 
 file_put_contents('/e2e/state/builders.json', wp_json_encode($builders, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 @chmod('/e2e/state/builders.json', 0666);

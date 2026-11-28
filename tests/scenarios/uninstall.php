@@ -14,6 +14,8 @@ function test_uninstall_removes_the_tables_settings_and_jobs_but_keeps_what_shop
     }
     $GLOBALS['agm']['options']['woocommerce_currency'] = 'EUR';
     $GLOBALS['agm']['options']['agumailer_other_plugin'] = 'keep';
+    $GLOBALS['agm']['options']['gravityformsaddon_agumail_version'] = '1.1.0';
+    $GLOBALS['agm']['options']['gravityformsaddon_gravityformsmailchimp_version'] = '5.7.2';
     set_transient('agumail_notice_1', array('type' => 'success', 'message' => 'Saved.'));
     set_transient('agumail_maintained', 1);
     set_transient('wc_other', 1);
@@ -33,6 +35,8 @@ function test_uninstall_removes_the_tables_settings_and_jobs_but_keeps_what_shop
     expect_same(array(), $left, 'options left behind');
     expect_same('EUR', get_option('woocommerce_currency'), 'another plugin\'s option was deleted');
     expect_same('keep', get_option('agumailer_other_plugin'), 'an option that only starts like ours was deleted');
+    expect_same(false, get_option('gravityformsaddon_agumail_version'), 'the version Gravity Forms kept for the AguMail add-on was left behind');
+    expect_same('5.7.2', get_option('gravityformsaddon_gravityformsmailchimp_version'), 'another Gravity Forms add-on\'s version was deleted');
     expect_same(array('wc_other'), array_keys($GLOBALS['agm']['transients']), 'transients left behind, or another plugin\'s deleted');
     expect_same(array(), array_values(array_filter($GLOBALS['agm']['as'], function ($action) { return $action['group'] === 'agumail'; })), 'AguMail jobs are still scheduled');
     expect_same(1, count($GLOBALS['agm']['as']), 'another plugin\'s job was unscheduled');

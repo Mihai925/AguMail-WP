@@ -6,7 +6,7 @@ Tested up to: 7.1
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 11.2
-Stable tag: 1.0.3
+Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -21,7 +21,7 @@ New to AguMail? [Create your free account](https://agumail.com/signup?utm_source
 = On any WordPress site =
 
 * **Signup forms and popups.** Add an AguMail form anywhere with the `[agumail_form slug="..."]` shortcode or the AguMail form block, or show one as a popup across the site: after a delay, after scrolling, or when the visitor moves to leave.
-* **The forms you already have.** Elementor Pro, Contact Form 7 and WPForms can each send their signups to AguMail, with no key to paste into each form.
+* **The forms you already have.** Elementor Pro, Contact Form 7, WPForms and Gravity Forms can each send their signups to AguMail, with no key to paste into each form.
 * **Registrations.** A marketing checkbox on the WordPress registration form adds the people who tick it to your list.
 * **Website tracking.** The AguMail site script records the pages a recognized visitor reads, so a flow can follow up. It is off until you switch it on.
 
@@ -40,13 +40,14 @@ Syncing orders, carts and products is on AguMail's Commerce plans and the free t
 
 Nothing is sent while a visitor waits. Your site only notes what changed, and a background task (Action Scheduler) sends it about once a minute. If AguMail is slow or unreachable, your pages and checkout take exactly as long as they would without the plugin.
 
-= Your Elementor, Contact Form 7 and WPForms forms =
+= Your Elementor, Contact Form 7, WPForms and Gravity Forms forms =
 
 Once the site is connected, each of these can send its signups to AguMail:
 
 * **Elementor Pro:** add **AguMail** under **Actions After Submit**, in a page form or a popup.
 * **Contact Form 7:** switch it on in the form's **AguMail** tab.
 * **WPForms:** switch it on under **Settings > AguMail** in the form builder.
+* **Gravity Forms:** switch it on under the form's **Settings > AguMail**. Your confirmations, notifications and other add-ons run as before.
 
 Each form chooses its tags, whether signups confirm by email first, and which fields hold the email, name and phone (found for you when you leave them). A form with an optional checkbox for your emails sends only the visitors who tick it.
 
@@ -66,7 +67,7 @@ Requirements: WordPress 6.5 or later, PHP 7.4 or later. On a store, WooCommerce 
 
 = Do I need WooCommerce? =
 
-No. The plugin works on any WordPress site: signup forms, popups, your Elementor, Contact Form 7 and WPForms signups, registrations and website tracking. With WooCommerce active it also syncs your store. Activate WooCommerce later and the AguMail page offers to sync your store too, with nothing to set up again.
+No. The plugin works on any WordPress site: signup forms, popups, your Elementor, Contact Form 7, WPForms and Gravity Forms signups, registrations and website tracking. With WooCommerce active it also syncs your store. Activate WooCommerce later and the AguMail page offers to sync your store too, with nothing to set up again.
 
 = Do I need an AguMail account? Is it free? =
 
@@ -134,7 +135,7 @@ This plugin connects your site to AguMail (https://agumail.com), an email market
 **AguMail API** (https://api.agumail.com). Once the site is connected, your server sends, in the background and never during a visitor's visit:
 
 * people who register on the site, or (on a store) become customers: email address, first and last name, their answer to the marketing checkbox and when they gave it, and when they became a customer;
-* signups from your Elementor, Contact Form 7 and WPForms forms, once you switch a form on: email address, name and phone as the form collected them, the form's name and tags, whether it asks for a confirmation email, the words of its consent checkbox, the page it was on, the visitor's IP address and when they submitted.
+* signups from your Elementor, Contact Form 7, WPForms and Gravity Forms forms, once you switch a form on: email address, name and phone as the form collected them, the form's name and tags, whether it asks for a confirmation email, the words of its consent checkbox, the page it was on, the visitor's IP address and when they submitted.
 
 On a WooCommerce store, also:
 
@@ -158,6 +159,10 @@ AguMail's privacy policy: https://agumail.com/privacy
 On a site without WooCommerce, the plugin runs its background tasks on Action Scheduler 4.2.0 (https://actionscheduler.org, GPLv3 or later), bundled in vendor/woocommerce/action-scheduler. On a WooCommerce store, WooCommerce's own copy is used.
 
 == Changelog ==
+
+= 1.1.0 =
+* New: Gravity Forms forms can send their signups to AguMail. Switch it on in the form's Settings > AguMail, with the form's tags, double opt-in, and which fields hold the email, name, phone and consent (found for you when you leave them). Entries Gravity Forms marks as spam are never sent.
+* Tweak: with website tracking on, a visitor who signs up through a Gravity Forms AJAX form is recognized on the pages they view next, as with the other form plugins.
 
 = 1.0.3 =
 * Fix: product views are recorded on every theme and with any SEO plugin. The product page now names its product to the AguMail script from WooCommerce itself, including products shown with [product_page] or the Single Product block.

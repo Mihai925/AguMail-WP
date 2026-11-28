@@ -1031,7 +1031,7 @@ function agumail_connect_welcome_points() {
 		);
 	}
 	return array(
-		__( 'Grow your list with signup forms, popups and the forms you already have: Elementor, Contact Form 7 and WPForms.', 'agumail' ),
+		__( 'Grow your list with signup forms, popups and the forms you already have: Elementor, Contact Form 7, WPForms and Gravity Forms.', 'agumail' ),
 		__( 'Welcome new subscribers automatically, and send newsletters they look forward to.', 'agumail' ),
 		__( 'Describe a flow in a sentence, or let AguMail suggest what to send next.', 'agumail' ),
 	);

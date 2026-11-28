@@ -86,6 +86,8 @@ $agumail_uninstall_site = function () {
 
 	// Contact Form 7 keeps each form's AguMail settings as post meta on the form.
 	delete_post_meta_by_key( '_agumail_signup' );
+	// Gravity Forms records each add-on's version as an option of its own.
+	delete_option( 'gravityformsaddon_agumail_version' );
 
 	if ( function_exists( 'as_unschedule_all_actions' ) && ( ! class_exists( 'ActionScheduler' ) || ActionScheduler::is_initialized() ) ) {
 		as_unschedule_all_actions( '', array(), 'agumail' );
